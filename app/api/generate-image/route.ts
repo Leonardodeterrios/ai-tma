@@ -43,7 +43,6 @@ export async function POST(req: Request) {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) return NextResponse.json({ error: 'WAVESPEED_KEY не настроен' }, { status: 500 });
 
-      // ПРАВИЛЬНЫЙ АДРЕС СЕРВЕРА
       const res = await fetch('https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro', {
         method: 'POST',
         headers: {
@@ -53,7 +52,7 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           prompt: prompt,
           aspect_ratio: "3:4",
-          enable_sync_mode: true // ПРОСИМ ОТДАТЬ ГОТОВУЮ КАРТИНКУ
+          enable_sync_mode: true
         })
       });
 
@@ -63,7 +62,6 @@ export async function POST(req: Request) {
       
       if (!res.ok) return NextResponse.json({ error: data.message || JSON.stringify(data) }, { status: 500 });
 
-      // Ищем ссылку в новом формате ответа
       const imageUrl = data.data?.outputs?.[0] || data.url || data.output?.url;
       if (!imageUrl) return NextResponse.json({ error: 'Нет картинки в ответе' }, { status: 500 });
 
@@ -97,6 +95,45 @@ export async function POST(req: Request) {
 
       const videoUrl = data.data?.outputs?.[0] || data.url || data.video_url;
       return NextResponse.json({ url: videoUrl, type: 'video' });
+    }
+
+    // ==========================================
+    // 4. GOOGLE (NANO BANANA / GEMINI) - ФОТО
+    // ==========================================
+    if (engine === 'nanobanana') {
+      const geminiKey = process.env.GEMINI_KEY;
+      if (!geminiKey) return NextResponse.json({ error: 'GEMINI_KEY не настроен' }, { status: 500 });
+
+      // Официальный эндпоинт Google для генерации картинок (Imagen / Nano Banana)
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${geminiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          instances: [
+            { prompt: prompt }
+          ],
+          parameters: {
+            sampleCount: 1,
+            aspectRatio: "3:4"
+          }
+        })
+      });
+
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { return NextResponse.json({ error: `Ошибка Google: ${text}` }, { status: 500 }); }
+      
+      if (!res.ok) return NextResponse.json({ error: data.error?.message || JSON.stringify(data) }, { status: 500 });
+
+      const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
+      if (!base64Image) return NextResponse.json({ error: 'Google не вернул картинку' }, { status: 500 });
+
+      // Google возвращает не ссылку, а саму картинку в коде (Base64), поэтому мы отдаем ее вот так:
+      const imageUrl = `data:image/jpeg;base64,${base64Image}`;
+      
+      return NextResponse.json({ url: imageUrl, type: 'image' });
     }
 
     return NextResponse.json({ error: 'Неизвестный движок' }, { status: 400 });
