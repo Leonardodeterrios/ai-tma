@@ -104,8 +104,8 @@ export async function POST(req: Request) {
       const geminiKey = process.env.GEMINI_KEY;
       if (!geminiKey) return NextResponse.json({ error: 'GEMINI_KEY не настроен' }, { status: 500 });
 
-      // Новый правильный эндпоинт от Google (Gemini Image Generation)
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`, {
+      // Самый свежий способ обращения к Google Imagen 3 (Nano Banana)
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${geminiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -125,30 +125,39 @@ export async function POST(req: Request) {
       let data;
       try { data = JSON.parse(text); } catch { return NextResponse.json({ error: `Ошибка Google: ${text}` }, { status: 500 }); }
       
-      // Если imagen-3.0-generate-002 не сработал (например, отключен в регионе), пробуем экспериментальную версию
-      if (!res.ok) {
-         if (data.error?.message?.includes("not found")) {
-             // Запасной план (Фолбэк)
-             const resFallback = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:predict?key=${geminiKey}`, {
-                 method: 'POST',
-                 headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify({
-                    instances: [{ prompt: prompt }],
-                    parameters: { sampleCount: 1, aspectRatio: "3:4" }
-                 })
-             });
-             const textFallback = await resFallback.text();
-             let dataFallback;
-             try { dataFallback = JSON.parse(textFallback); } catch { return NextResponse.json({ error: `Ошибка Google (Fallback): ${textFallback}` }, { status: 500 }); }
-             if (!resFallback.ok) return NextResponse.json({ error: dataFallback.error?.message || JSON.stringify(dataFallback) }, { status: 500 });
-             data = dataFallback; // Используем результат запасного плана
-         } else {
-             return NextResponse.json({ error: data.error?.message || JSON.stringify(data) }, { status: 500 });
-         }
+      // Если старый predict не работает (ошибка 404), используем новый generateContent
+      if (!res.ok && data.error?.message?.includes("not found")) {
+        const resNew = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent?key=${geminiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              responseMimeType: "image/jpeg"
+            }
+          })
+        });
+        
+        const textNew = await resNew.text();
+        let dataNew;
+        try { dataNew = JSON.parse(textNew); } catch { return NextResponse.json({ error: `Ошибка Google V2: ${textNew}` }, { status: 500 }); }
+        
+        if (!resNew.ok) return NextResponse.json({ error: dataNew.error?.message || JSON.stringify(dataNew) }, { status: 500 });
+        
+        // В новом API картинка может прийти в candidates
+        const base64V2 = dataNew.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64V2) return NextResponse.json({ error: 'Google не вернул картинку (новый API)' }, { status: 500 });
+        
+        return NextResponse.json({ url: `data:image/jpeg;base64,${base64V2}`, type: 'image' });
       }
 
+      if (!res.ok) return NextResponse.json({ error: data.error?.message || JSON.stringify(data) }, { status: 500 });
+
+      // Для старого API predict
       const base64Image = data.predictions?.[0]?.bytesBase64Encoded || data.predictions?.[0]?.bytesBase64;
-      if (!base64Image) return NextResponse.json({ error: 'Google не вернул картинку (скорее всего, сработал фильтр цензуры)' }, { status: 500 });
+      if (!base64Image) return NextResponse.json({ error: 'Google не вернул картинку (цензура?)' }, { status: 500 });
 
       const imageUrl = `data:image/jpeg;base64,${base64Image}`;
       return NextResponse.json({ url: imageUrl, type: 'image' });
