@@ -54,21 +54,22 @@ export default function Home() {
         {activeTab === 'explore' && (
           <div className="p-4 space-y-6 max-w-md mx-auto">
             
-            {/* ШАПКА (Исправленная) */}
+            {/* ШАПКА (С четким призывом к действию) */}
             <div className="flex items-center justify-between pt-2">
               <div className="text-[22px] leading-tight font-black tracking-tight whitespace-nowrap">
                 ACCESS<br />
                 <span className="text-[#D4FF00]">GRANTED</span>
               </div>
               
+              {/* КНОПКА НА ТВОЙ САЙТ */}
               <a 
                 href="https://твой-сайт.ru" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="bg-gradient-to-r from-[#D4FF00] to-[#a8cc00] text-black px-4 py-3 rounded-2xl text-[12px] font-bold flex flex-col items-center justify-center leading-tight shadow-lg shadow-[#D4FF00]/10 hover:scale-95 transition-transform max-w-[140px] text-center"
+                className="bg-gradient-to-r from-[#D4FF00] to-[#a8cc00] text-black px-4 py-2.5 rounded-2xl flex flex-col items-center justify-center leading-tight shadow-lg shadow-[#D4FF00]/10 hover:scale-95 transition-transform max-w-[150px] text-center"
               >
-                <span>🚀 Обучение</span>
-                <span className="text-[10px] font-medium opacity-80 mt-0.5">AI Influencer</span>
+                <span className="text-[13px] font-black uppercase tracking-tight">Монетизируй</span>
+                <span className="text-[10px] font-bold opacity-80 mt-0.5">Свою AI-модель</span>
               </a>
             </div>
 
@@ -102,14 +103,13 @@ export default function Home() {
               ))}
             </div>
 
-            {/* ГЛАВНЫЙ БАННЕР (Теперь сочный и красивый) */}
+            {/* ГЛАВНЫЙ БАННЕР */}
             <div 
               onClick={() => setActiveTab('studio')}
               className="relative w-full aspect-[4/3] sm:aspect-[16/9] rounded-[24px] overflow-hidden group cursor-pointer border border-white/10 shadow-2xl"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-purple-900/40 via-black to-[#D4FF00]/10 z-10"></div>
               
-              {/* Фоновая картинка. Если не грузится, будет красивый градиент выше */}
               <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center opacity-60 mix-blend-overlay"></div>
               
               <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-20">
@@ -122,7 +122,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* ПОПУЛЯРНЫЕ НЕЙРОСЕТИ (С иконками и градиентами) */}
+            {/* ПОПУЛЯРНЫЕ НЕЙРОСЕТИ */}
             <div>
               <div className="flex justify-between items-end mb-5">
                 <h3 className="text-[19px] font-bold tracking-tight">Нейросети</h3>
