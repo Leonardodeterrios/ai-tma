@@ -3,7 +3,8 @@ import { useState } from 'react';
 import Image from 'next/image';
 import BrainTab from './components/BrainTab';
 
-type Engine = 'flux' | 'seedream' | 'seedance';
+// Добавили nanobanana в список движков
+type Engine = 'flux' | 'seedream' | 'seedance' | 'nanobanana';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('explore');
@@ -163,7 +164,7 @@ export default function Home() {
             <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
               <button 
                 onClick={() => setSelectedEngine('seedream')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border ${
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border whitespace-nowrap ${
                   selectedEngine === 'seedream' 
                     ? 'bg-[#D4FF00] text-black border-[#D4FF00]' 
                     : 'bg-[#1A1B1E] text-white/70 border-white/10 hover:border-white/30'
@@ -171,9 +172,21 @@ export default function Home() {
               >
                 Seedream (Photo)
               </button>
+              
+              <button 
+                onClick={() => setSelectedEngine('nanobanana')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border whitespace-nowrap flex items-center gap-1 ${
+                  selectedEngine === 'nanobanana' 
+                    ? 'bg-[#D4FF00] text-black border-[#D4FF00]' 
+                    : 'bg-[#1A1B1E] text-white/70 border-white/10 hover:border-white/30'
+                }`}
+              >
+                🍌 Nano Banana (Google)
+              </button>
+
               <button 
                 onClick={() => setSelectedEngine('flux')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border ${
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border whitespace-nowrap ${
                   selectedEngine === 'flux' 
                     ? 'bg-[#D4FF00] text-black border-[#D4FF00]' 
                     : 'bg-[#1A1B1E] text-white/70 border-white/10 hover:border-white/30'
@@ -183,7 +196,7 @@ export default function Home() {
               </button>
               <button 
                 onClick={() => setSelectedEngine('seedance')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border ${
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border whitespace-nowrap ${
                   selectedEngine === 'seedance' 
                     ? 'bg-[#D4FF00] text-black border-[#D4FF00]' 
                     : 'bg-[#1A1B1E] text-white/70 border-white/10 hover:border-white/30'
