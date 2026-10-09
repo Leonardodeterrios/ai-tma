@@ -3,25 +3,31 @@ import { useState } from 'react';
 import Image from 'next/image';
 import BrainTab from './components/BrainTab';
 
+type Engine = 'flux' | 'seedream' | 'seedance';
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState('explore');
 
-  // Состояния для Студии (наша генерация от Fal)
+  // Состояния для Студии
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [generatedResult, setGeneratedResult] = useState<{ url: string, type: 'image' | 'video' } | null>(null);
+  const [selectedEngine, setSelectedEngine] = useState<Engine>('seedream');
 
-  const handleGenerateImage = async () => {
+  const handleGenerate = async () => {
     if (!imagePrompt.trim()) return;
     
     setIsGenerating(true);
-    setGeneratedImage(null);
+    setGeneratedResult(null);
 
     try {
       const response = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: imagePrompt })
+        body: JSON.stringify({ 
+          prompt: imagePrompt,
+          engine: selectedEngine
+        })
       });
 
       const data = await response.json();
@@ -30,7 +36,7 @@ export default function Home() {
         throw new Error(data.error || 'Ошибка генерации');
       }
 
-      setGeneratedImage(data.imageUrl);
+      setGeneratedResult({ url: data.url, type: data.type });
 
     } catch (error: any) {
       console.error(error);
@@ -42,14 +48,12 @@ export default function Home() {
 
   return (
     <main className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans selection:bg-[#D4FF00] selection:text-black">
-      {/* Контентная часть (скроллится) */}
+      {/* Контентная часть */}
       <div className="flex-1 overflow-y-auto pb-24">
         
-        {/* === ВКЛАДКА EXPLORE (ГЛАВНАЯ) === */}
+        {/* === ВКЛАДКА EXPLORE === */}
         {activeTab === 'explore' && (
           <div className="p-4 space-y-6">
-            
-            {/* Шапка: лого и кнопка апгрейда */}
             <div className="flex items-center justify-between pt-2">
               <div className="text-xl font-bold tracking-tight">
                 ACCESS <span className="text-[#D4FF00]">GRANTED</span>
@@ -59,7 +63,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Поиск */}
             <div className="relative">
               <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
                 <span className="text-white/40 text-lg">🔍</span>
@@ -71,7 +74,6 @@ export default function Home() {
               />
             </div>
 
-            {/* Фильтры (скроллинг по горизонтали) */}
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
               {['All', 'Uncensored', 'Templates', 'Video', 'Motion Control'].map((tag, i) => (
                 <button 
@@ -89,13 +91,11 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Главный Баннер (Создание с нуля) */}
             <div 
               onClick={() => setActiveTab('studio')}
               className="relative w-full aspect-[16/9] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a1b1e] to-black border border-white/10 group cursor-pointer"
             >
               <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors duration-500 z-10"></div>
-              {/* Фоновая заглушка для красоты */}
               <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=1974&auto=format&fit=crop')] bg-cover bg-center opacity-50"></div>
               
               <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent z-20">
@@ -108,7 +108,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Инструменты (Движки) */}
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold">Top Engines</h3>
@@ -132,25 +131,10 @@ export default function Home() {
                 ))}
               </div>
             </div>
-
-            {/* Рекламный блок монетизации */}
-            <div className="bg-[#D4FF00] rounded-3xl p-5 flex flex-col justify-between text-black relative overflow-hidden mt-8">
-              <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="bg-black text-white text-xs font-bold px-2 py-1 rounded-full">PRO</span>
-                </div>
-                <h4 className="font-bold text-xl mb-1 w-2/3">Monetize Your AI Models</h4>
-                <p className="text-sm opacity-80 mb-4 w-2/3">Turn your uncensored creations into profit.</p>
-                <button className="bg-black text-white px-6 py-3 rounded-2xl text-sm font-bold w-max shadow-lg">
-                  Start Earning
-                </button>
-              </div>
-            </div>
-            
           </div>
         )}
 
-        {/* === ВКЛАДКА BRAIN (ЧАТТЕР) === */}
+        {/* === ВКЛАДКА BRAIN === */}
         {activeTab === 'brain' && (
           <div className="h-full flex flex-col">
             <div className="p-4 border-b border-white/5 bg-[#0A0A0A] sticky top-0 z-10">
@@ -168,41 +152,88 @@ export default function Home() {
         {/* === ВКЛАДКА STUDIO (ГЕНЕРАЦИЯ) === */}
         {activeTab === 'studio' && (
           <div className="p-4 flex flex-col h-full max-w-md mx-auto">
-            <div className="flex justify-between items-center mb-6 pt-2">
+            <div className="flex justify-between items-center mb-4 pt-2">
               <h2 className="text-2xl font-bold">Studio</h2>
               <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-3 py-1 rounded-full uppercase font-bold tracking-wider">
                 Uncensored Mode
               </span>
             </div>
+
+            {/* ВЫБОР ДВИЖКА (Engine Selector) */}
+            <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
+              <button 
+                onClick={() => setSelectedEngine('seedream')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border ${
+                  selectedEngine === 'seedream' 
+                    ? 'bg-[#D4FF00] text-black border-[#D4FF00]' 
+                    : 'bg-[#1A1B1E] text-white/70 border-white/10 hover:border-white/30'
+                }`}
+              >
+                Seedream (Photo)
+              </button>
+              <button 
+                onClick={() => setSelectedEngine('flux')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border ${
+                  selectedEngine === 'flux' 
+                    ? 'bg-[#D4FF00] text-black border-[#D4FF00]' 
+                    : 'bg-[#1A1B1E] text-white/70 border-white/10 hover:border-white/30'
+                }`}
+              >
+                Flux (Fast Photo)
+              </button>
+              <button 
+                onClick={() => setSelectedEngine('seedance')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border ${
+                  selectedEngine === 'seedance' 
+                    ? 'bg-[#D4FF00] text-black border-[#D4FF00]' 
+                    : 'bg-[#1A1B1E] text-white/70 border-white/10 hover:border-white/30'
+                }`}
+              >
+                Seedance (Video)
+              </button>
+            </div>
             
             <textarea
               value={imagePrompt}
               onChange={(e) => setImagePrompt(e.target.value)}
-              placeholder="Describe your model... (e.g. realistic cinematic portrait of a girl)"
+              placeholder={selectedEngine === 'seedance' ? "Describe your cinematic video..." : "Describe your model... (e.g. realistic cinematic portrait of a girl)"}
               className="w-full bg-[#1A1B1E] border border-white/10 rounded-3xl p-5 mb-4 h-32 focus:outline-none focus:border-[#D4FF00] text-white resize-none text-sm leading-relaxed"
             />
             
             <button
-              onClick={handleGenerateImage}
+              onClick={handleGenerate}
               disabled={isGenerating || !imagePrompt.trim()}
               className="w-full bg-[#D4FF00] hover:bg-[#bce600] disabled:bg-[#1A1B1E] disabled:text-white/30 text-black font-bold py-4 rounded-3xl mb-6 transition-all"
             >
-              {isGenerating ? 'Rendering Engine...' : 'Generate AI Model'}
+              {isGenerating ? `Rendering ${selectedEngine}...` : 'Generate AI Model'}
             </button>
 
-            {/* Зона картинки */}
+            {/* Зона результата (Картинка или Видео) */}
             <div className="w-full aspect-[4/5] bg-[#1A1B1E] rounded-3xl border border-white/5 overflow-hidden relative flex items-center justify-center">
               {isGenerating ? (
                 <div className="flex flex-col items-center gap-4">
                   <div className="w-8 h-8 border-4 border-[#D4FF00] border-t-transparent rounded-full animate-spin"></div>
-                  <div className="text-white/50 text-sm font-medium">Processing Seedream 4.5...</div>
+                  <div className="text-white/50 text-sm font-medium">
+                    {selectedEngine === 'seedance' ? "Rendering video (takes a few mins)..." : "Processing image..."}
+                  </div>
                 </div>
-              ) : generatedImage ? (
-                <img 
-                  src={generatedImage} 
-                  alt="Generated AI Model" 
-                  className="w-full h-full object-cover"
-                />
+              ) : generatedResult ? (
+                generatedResult.type === 'image' ? (
+                  <img 
+                    src={generatedResult.url} 
+                    alt="Generated AI Model" 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <video 
+                    src={generatedResult.url} 
+                    controls 
+                    autoPlay 
+                    loop 
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                )
               ) : (
                 <div className="text-white/30 text-center px-4 flex flex-col items-center">
                   <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
@@ -216,7 +247,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* === НИЖНЯЯ НАВИГАЦИЯ (СТИЛЬ HIGGSFIELD) === */}
+      {/* === НИЖНЯЯ НАВИГАЦИЯ === */}
       <div className="fixed bottom-0 w-full bg-[#0A0A0A]/90 backdrop-blur-xl border-t border-white/5 pb-8 pt-4 z-50">
         <div className="flex justify-around items-center max-w-md mx-auto px-6">
           <button 
