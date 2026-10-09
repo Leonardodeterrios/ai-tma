@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     }
 
     // ==========================================
-    // 1. FAL.AI (FLUX) - БЫСТРЫЕ ФОТО
+    // 1. FAL.AI (FLUX)
     // ==========================================
     if (engine === 'flux') {
       const falKey = process.env.FAL_KEY;
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     }
 
     // ==========================================
-    // 2. WAVESPEED (SEEDREAM) - ФОТО (UNCENSORED)
+    // 2. WAVESPEED (SEEDREAM)
     // ==========================================
     if (engine === 'seedream') {
       const waveKey = process.env.WAVESPEED_KEY;
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
     }
 
     // ==========================================
-    // 3. WAVESPEED (SEEDANCE) - ВИДЕО
+    // 3. WAVESPEED (SEEDANCE)
     // ==========================================
     if (engine === 'seedance') {
       const waveKey = process.env.WAVESPEED_KEY;
@@ -98,66 +98,53 @@ export async function POST(req: Request) {
     }
 
     // ==========================================
-    // 4. GOOGLE (NANO BANANA / GEMINI) - ФОТО
+    // 4. GOOGLE (NANO BANANA / GEMINI)
     // ==========================================
     if (engine === 'nanobanana') {
       const geminiKey = process.env.GEMINI_KEY;
       if (!geminiKey) return NextResponse.json({ error: 'GEMINI_KEY не настроен' }, { status: 500 });
 
-      // Самый свежий способ обращения к Google Imagen 3 (Nano Banana)
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${geminiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          instances: [
-            { prompt: prompt }
-          ],
-          parameters: {
-            sampleCount: 1,
-            aspectRatio: "3:4"
-          }
-        })
-      });
-
-      const text = await res.text();
-      let data;
-      try { data = JSON.parse(text); } catch { return NextResponse.json({ error: `Ошибка Google: ${text}` }, { status: 500 }); }
-      
-      // Если старый predict не работает (ошибка 404), используем новый generateContent
-      if (!res.ok && data.error?.message?.includes("not found")) {
-        const resNew = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent?key=${geminiKey}`, {
+      // Универсальная функция для отправки запроса в Google (ТОЛЬКО через :predict)
+      const askGoogle = async (modelName: string) => {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${geminiKey}`;
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{
-              parts: [{ text: prompt }]
-            }],
-            generationConfig: {
-              responseMimeType: "image/jpeg"
-            }
+            instances: [{ prompt: prompt }],
+            parameters: { sampleCount: 1, aspectRatio: "3:4" }
           })
         });
-        
-        const textNew = await resNew.text();
-        let dataNew;
-        try { dataNew = JSON.parse(textNew); } catch { return NextResponse.json({ error: `Ошибка Google V2: ${textNew}` }, { status: 500 }); }
-        
-        if (!resNew.ok) return NextResponse.json({ error: dataNew.error?.message || JSON.stringify(dataNew) }, { status: 500 });
-        
-        // В новом API картинка может прийти в candidates
-        const base64V2 = dataNew.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64V2) return NextResponse.json({ error: 'Google не вернул картинку (новый API)' }, { status: 500 });
-        
-        return NextResponse.json({ url: `data:image/jpeg;base64,${base64V2}`, type: 'image' });
+        const text = await res.text();
+        try { 
+          return { ok: res.ok, data: JSON.parse(text) }; 
+        } catch { 
+          return { ok: false, data: { error: { message: text } } }; 
+        }
+      };
+
+      // Пробуем самую новую модель (002)
+      let result = await askGoogle('imagen-3.0-generate-002');
+
+      // Если недоступна (not found), пробуем предыдущую версию (001)
+      if (!result.ok && result.data?.error?.message?.includes('not found')) {
+        result = await askGoogle('imagen-3.0-generate-001');
       }
 
-      if (!res.ok) return NextResponse.json({ error: data.error?.message || JSON.stringify(data) }, { status: 500 });
+      // Если и она недоступна, пробуем экспериментальную версию
+      if (!result.ok && result.data?.error?.message?.includes('not found')) {
+        result = await askGoogle('gemini-2.0-flash-exp-image-generation');
+      }
 
-      // Для старого API predict
-      const base64Image = data.predictions?.[0]?.bytesBase64Encoded || data.predictions?.[0]?.bytesBase64;
-      if (!base64Image) return NextResponse.json({ error: 'Google не вернул картинку (цензура?)' }, { status: 500 });
+      // Если ни одна не сработала, выдаем чистую ошибку от Google
+      if (!result.ok) {
+        return NextResponse.json({ error: result.data?.error?.message || JSON.stringify(result.data) }, { status: 500 });
+      }
+
+      const base64Image = result.data.predictions?.[0]?.bytesBase64Encoded || result.data.predictions?.[0]?.bytesBase64;
+      if (!base64Image) {
+        return NextResponse.json({ error: 'Google обработал запрос, но не вернул картинку (возможно, сработал фильтр безопасности)' }, { status: 500 });
+      }
 
       const imageUrl = `data:image/jpeg;base64,${base64Image}`;
       return NextResponse.json({ url: imageUrl, type: 'image' });
