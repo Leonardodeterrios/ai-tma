@@ -24,15 +24,16 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           prompt: prompt,
           image_size: "landscape_4_3",
-          enable_safety_checker: false // Убрали цензуру
+          enable_safety_checker: false
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(data));
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { return NextResponse.json({ error: `Ошибка Fal: ${text}` }, { status: 500 }); }
       
-      const imageUrl = data.images?.[0]?.url;
-      return NextResponse.json({ url: imageUrl, type: 'image' });
+      if (!res.ok) return NextResponse.json({ error: data.error || JSON.stringify(data) }, { status: 500 });
+      return NextResponse.json({ url: data.images?.[0]?.url, type: 'image' });
     }
 
     // ==========================================
@@ -42,7 +43,8 @@ export async function POST(req: Request) {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) return NextResponse.json({ error: 'WAVESPEED_KEY не настроен' }, { status: 500 });
 
-      const res = await fetch('https://api.wavespeed.ai/v1/models/bytedance/seedream-v5.0-pro', {
+      // ПРАВИЛЬНЫЙ АДРЕС СЕРВЕРА
+      const res = await fetch('https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${waveKey}`,
@@ -50,14 +52,21 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({
           prompt: prompt,
-          aspect_ratio: "3:4"
+          aspect_ratio: "3:4",
+          enable_sync_mode: true // ПРОСИМ ОТДАТЬ ГОТОВУЮ КАРТИНКУ
         })
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || JSON.stringify(data));
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { return NextResponse.json({ error: `Ошибка WaveSpeed: ${text}` }, { status: 500 }); }
+      
+      if (!res.ok) return NextResponse.json({ error: data.message || JSON.stringify(data) }, { status: 500 });
 
-      const imageUrl = data.url || data.output?.url || data.images?.[0]?.url;
+      // Ищем ссылку в новом формате ответа
+      const imageUrl = data.data?.outputs?.[0] || data.url || data.output?.url;
+      if (!imageUrl) return NextResponse.json({ error: 'Нет картинки в ответе' }, { status: 500 });
+
       return NextResponse.json({ url: imageUrl, type: 'image' });
     }
 
@@ -68,19 +77,25 @@ export async function POST(req: Request) {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) return NextResponse.json({ error: 'WAVESPEED_KEY не настроен' }, { status: 500 });
 
-      const res = await fetch('https://api.wavespeed.ai/v1/models/bytedance/seedance-2.0/text-to-video', {
+      const res = await fetch('https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/text-to-video', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${waveKey}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ prompt: prompt })
+        body: JSON.stringify({ 
+          prompt: prompt,
+          enable_sync_mode: true
+        })
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || JSON.stringify(data));
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { return NextResponse.json({ error: `Ошибка WaveSpeed: ${text}` }, { status: 500 }); }
+      
+      if (!res.ok) return NextResponse.json({ error: data.message || JSON.stringify(data) }, { status: 500 });
 
-      const videoUrl = data.url || data.video_url || data.output?.url;
+      const videoUrl = data.data?.outputs?.[0] || data.url || data.video_url;
       return NextResponse.json({ url: videoUrl, type: 'video' });
     }
 
