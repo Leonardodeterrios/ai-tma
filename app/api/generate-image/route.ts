@@ -1,48 +1,93 @@
 import { NextResponse } from 'next/server';
 
-export const maxDuration = 60;
-
 export async function POST(req: Request) {
   try {
-    const { prompt } = await req.json();
+    const { prompt, engine } = await req.json();
 
-    const key = process.env.FAL_KEY;
-    if (!key || key === 'сюда_ты_потом_вставишь_ключ_от_fal_ai') {
-      return NextResponse.json({ error: 'FAL_KEY не настроен в Vercel' }, { status: 500 });
+    if (!prompt) {
+      return NextResponse.json({ error: 'Промпт не может быть пустым' }, { status: 400 });
     }
 
-    const res = await fetch('https://fal.run/fal-ai/flux/dev', {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${key}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        image_size: 'portrait_4_3',
-        num_images: 1,
-        enable_safety_checker: false,
-      }),
-    });
+    // ==========================================
+    // 1. FAL.AI (FLUX) - БЫСТРЫЕ ФОТО
+    // ==========================================
+    if (engine === 'flux') {
+      const falKey = process.env.FAL_KEY;
+      if (!falKey) return NextResponse.json({ error: 'FAL_KEY не настроен' }, { status: 500 });
 
-    const data = await res.json();
+      const res = await fetch("https://queue.fal.run/fal-ai/flux/dev", {
+        method: "POST",
+        headers: {
+          "Authorization": `Key ${falKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: prompt,
+          image_size: "landscape_4_3",
+          enable_safety_checker: false // Убрали цензуру
+        }),
+      });
 
-    if (!res.ok) {
-      console.error('Fal ответил ошибкой:', JSON.stringify(data));
-      return NextResponse.json(
-        { error: data?.detail || data?.message || 'Ошибка Fal.ai' },
-        { status: 500 }
-      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(JSON.stringify(data));
+      
+      const imageUrl = data.images?.[0]?.url;
+      return NextResponse.json({ url: imageUrl, type: 'image' });
     }
 
-    const imageUrl = data?.images?.[0]?.url;
-    if (!imageUrl) {
-      return NextResponse.json({ error: 'Fal не вернул картинку' }, { status: 500 });
+    // ==========================================
+    // 2. WAVESPEED (SEEDREAM) - ФОТО (UNCENSORED)
+    // ==========================================
+    if (engine === 'seedream') {
+      const waveKey = process.env.WAVESPEED_KEY;
+      if (!waveKey) return NextResponse.json({ error: 'WAVESPEED_KEY не настроен' }, { status: 500 });
+
+      const res = await fetch('https://api.wavespeed.ai/v1/models/bytedance/seedream-v5.0-pro', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${waveKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          prompt: prompt,
+          aspect_ratio: "3:4"
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || JSON.stringify(data));
+
+      const imageUrl = data.url || data.output?.url || data.images?.[0]?.url;
+      return NextResponse.json({ url: imageUrl, type: 'image' });
     }
 
-    return NextResponse.json({ imageUrl });
+    // ==========================================
+    // 3. WAVESPEED (SEEDANCE) - ВИДЕО
+    // ==========================================
+    if (engine === 'seedance') {
+      const waveKey = process.env.WAVESPEED_KEY;
+      if (!waveKey) return NextResponse.json({ error: 'WAVESPEED_KEY не настроен' }, { status: 500 });
+
+      const res = await fetch('https://api.wavespeed.ai/v1/models/bytedance/seedance-2.0/text-to-video', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${waveKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ prompt: prompt })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || JSON.stringify(data));
+
+      const videoUrl = data.url || data.video_url || data.output?.url;
+      return NextResponse.json({ url: videoUrl, type: 'video' });
+    }
+
+    return NextResponse.json({ error: 'Неизвестный движок' }, { status: 400 });
+
   } catch (error: any) {
-    console.error('Ошибка генерации:', error);
-    return NextResponse.json({ error: `Ошибка сервера: ${error.message}` }, { status: 500 });
+    console.error('Ошибка сервера:', error);
+    return NextResponse.json({ error: error.message || 'Ошибка API' }, { status: 500 });
   }
 }
