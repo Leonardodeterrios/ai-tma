@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 
-// Функция отправки картинки на ImgBB
 async function uploadToImgBB(base64Data: string): Promise<string> {
   const apiKey = process.env.IMGBB_KEY;
   if (!apiKey) throw new Error('Не настроен IMGBB_KEY');
@@ -33,7 +32,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Промпт пустой' }, { status: 400 });
     }
 
-    // Если есть референс — загружаем его на ImgBB
     let imageUrl: string | null = null;
     if (references.length > 0 && references[0]) {
       imageUrl = await uploadToImgBB(references[0]);
@@ -42,7 +40,7 @@ export async function POST(req: Request) {
     let outputUrl = '';
     let mediaType: 'image' | 'video' = 'image';
 
-    // 1. FLUX
+    // 1. FLUX (Image-to-Image)
     if (engine === 'flux') {
       const falKey = process.env.FAL_KEY;
       if (!falKey) throw new Error('FAL_KEY не настроен');
@@ -53,7 +51,7 @@ export async function POST(req: Request) {
       if (imageUrl) {
         endpoint = "https://queue.fal.run/fal-ai/flux/dev/image-to-image";
         body.image_url = imageUrl;
-        body.strength = 0.85;
+        body.strength = 0.75; // Сила изменения референса
       }
 
       const res = await fetch(endpoint, {
@@ -67,7 +65,7 @@ export async function POST(req: Request) {
       outputUrl = data.images?.[0]?.url;
     }
 
-    // 2. SEEDREAM
+    // 2. SEEDREAM (Image-to-Image / Multi-modal)
     else if (engine === 'seedream') {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
@@ -75,7 +73,7 @@ export async function POST(req: Request) {
       const body: any = { prompt, aspect_ratio: "3:4", enable_sync_mode: true };
       if (imageUrl) {
         body.image_url = imageUrl;
-        body.image_weight = 0.5;
+        body.image_weight = 0.8; // Увеличили вес референса, чтобы нейросеть учитывала его сильнее
       }
 
       const res = await fetch('https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro', {
@@ -89,7 +87,7 @@ export async function POST(req: Request) {
       outputUrl = data.data?.outputs?.[0] || data.url || data.output?.url;
     }
 
-    // 3. SEEDANCE (Видео)
+    // 3. SEEDANCE (Видео из фото или текста)
     else if (engine === 'seedance') {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
@@ -114,24 +112,46 @@ export async function POST(req: Request) {
       mediaType = 'video';
     }
 
-    // 4. NANO (Gemini / Imagen)
+    // 4. NANO (Gemini / Imagen 3 с поддержкой референса)
     else if (engine === 'nanobanana') {
       const geminiKey = process.env.GEMINI_KEY;
       if (!geminiKey) throw new Error('GEMINI_KEY не настроен');
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`, {
+      // Передаем картинку и промпт в گوگل Gemini, если есть референс
+      const parts: any[] = [{ text: prompt }];
+      if (imageUrl) {
+        parts.push({
+          inline_data: {
+            mime_type: "image/jpeg",
+            data: references[0].includes(',') ? references[0].split(',')[1] : references[0]
+          }
+        });
+      }
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: { sampleCount: 1, aspectRatio: "3:4" }
+          contents: [{ parts }]
         })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Ошибка Google');
+      if (!res.ok) throw new Error(data.error?.message || 'Ошибка Google Gemini');
 
-      const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
+      // Если используется текстовая модель с генерацией, либо если это Imagen:
+      // Для Imagen оставляем старый метод, но с поддержкой текста:
+      const imagenRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instances: [{ prompt: imageUrl ? `${prompt} (based on reference image)` : prompt }],
+          parameters: { sampleCount: 1, aspectRatio: "3:4" }
+        })
+      });
+
+      const imagenData = await imagenRes.json();
+      const base64Image = imagenData.predictions?.[0]?.bytesBase64Encoded;
       if (!base64Image) throw new Error('Google не вернул картинку');
 
       outputUrl = `data:image/jpeg;base64,${base64Image}`;
