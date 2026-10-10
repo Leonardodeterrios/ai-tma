@@ -24,7 +24,6 @@ export default function Home() {
   const [resultType, setResultType] = useState<'image' | 'video'>('image');
   const [selectedEngine, setSelectedEngine] = useState<Engine>('seedream');
 
-  // Раздельные слоты для референсов (как в топовых сервисах)
   const [faceRef, setFaceRef] = useState<string | null>(null);
   const [clothesRef, setClothesRef] = useState<string | null>(null);
   const [locationRef, setLocationRef] = useState<string | null>(null);
@@ -33,9 +32,11 @@ export default function Home() {
   const clothesInputRef = useRef<HTMLInputElement>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileToasts = (file: File, setter: (val: string) => void) => {
+  const handleFileSelect = (file: File, setter: (val: string) => void) => {
     const reader = new FileReader();
-    reader.onload = (e) => setter(e.target?.result as string);
+    reader.onload = (e) => {
+      if (e.target?.result) setter(e.target.result as string);
+    };
     reader.readAsDataURL(file);
   };
 
@@ -45,7 +46,7 @@ export default function Home() {
       : imagePrompt;
 
     if (!finalPrompt.trim()) {
-      alert("Пожалуйста, введите описание!");
+      alert("Заполните описание!");
       return;
     }
 
@@ -53,8 +54,7 @@ export default function Home() {
     setResultUrl(null);
 
     try {
-      // Собираем массив референсов (первым всегда идет лицо, если есть)
-      const references = [faceRef, clothesRef, locationRef].filter(Boolean);
+      const references = [faceRef, clothesRef, locationRef].filter((r): r is string => Boolean(r));
 
       const response = await fetch('/api/generate-image', {
         method: 'POST',
@@ -67,10 +67,14 @@ export default function Home() {
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Ошибка генерации');
+      if (!response.ok) throw new Error(data.error || 'Ошибка при генерации');
 
-      setResultUrl(data.urls[0]);
-      setResultType(data.type || 'image');
+      if (data.urls && data.urls[0]) {
+        setResultUrl(data.urls[0]);
+        setResultType(data.type || 'image');
+      } else {
+        throw new Error('Пустой ответ от нейросети');
+      }
 
     } catch (error: any) {
       alert("Ошибка: " + error.message);
@@ -92,7 +96,7 @@ export default function Home() {
               </span>
             </div>
 
-            {/* Выбор движка */}
+            {/* Движки */}
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
               <button onClick={() => setSelectedEngine('seedream')} className={`px-4 py-2.5 rounded-xl text-[13px] font-bold border ${selectedEngine === 'seedream' ? 'bg-[#D4FF00] text-black border-[#D4FF00]' : 'bg-[#161618] text-white/70 border-white/5'}`}>🔥 Seedream</button>
               <button onClick={() => setSelectedEngine('nanobanana')} className={`px-4 py-2.5 rounded-xl text-[13px] font-bold border ${selectedEngine === 'nanobanana' ? 'bg-[#D4FF00] text-black border-[#D4FF00]' : 'bg-[#161618] text-white/70 border-white/5'}`}>🍌 Nano</button>
@@ -100,12 +104,11 @@ export default function Home() {
               <button onClick={() => setSelectedEngine('seedance')} className={`px-4 py-2.5 rounded-xl text-[13px] font-bold border ${selectedEngine === 'seedance' ? 'bg-[#D4FF00] text-black border-[#D4FF00]' : 'bg-[#161618] text-white/70 border-white/5'}`}>🎬 Seedance</button>
             </div>
 
-            {/* Секция мульти-референсов (Лицо, Одежда, Локация) */}
+            {/* Мульти-референсы */}
             <div className="bg-[#161618] border border-white/5 rounded-2xl p-4 space-y-3">
               <div className="text-[13px] font-bold text-white mb-1">Мульти-референсы модели</div>
               
               <div className="grid grid-cols-3 gap-2">
-                {/* 1. Лицо */}
                 <div onClick={() => faceInputRef.current?.click()} className="cursor-pointer border border-dashed border-white/10 hover:border-[#D4FF00]/50 rounded-xl p-2.5 text-center flex flex-col items-center justify-center bg-black/30 relative overflow-hidden h-24">
                   {faceRef ? (
                     <>
@@ -118,10 +121,9 @@ export default function Home() {
                       <span className="text-[11px] font-bold text-white/70">Лицо</span>
                     </>
                   )}
-                  <input type="file" accept="image/*" className="hidden" ref={faceInputRef} onChange={(e) => e.target.files?.[0] && handleFileToasts(e.target.files[0], setFaceRef)} />
+                  <input type="file" accept="image/*" className="hidden" ref={faceInputRef} onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0], setFaceRef)} />
                 </div>
 
-                {/* 2. Одежда */}
                 <div onClick={() => clothesInputRef.current?.click()} className="cursor-pointer border border-dashed border-white/10 hover:border-[#D4FF00]/50 rounded-xl p-2.5 text-center flex flex-col items-center justify-center bg-black/30 relative overflow-hidden h-24">
                   {clothesRef ? (
                     <>
@@ -134,10 +136,9 @@ export default function Home() {
                       <span className="text-[11px] font-bold text-white/70">Одежда</span>
                     </>
                   )}
-                  <input type="file" accept="image/*" className="hidden" ref={clothesInputRef} onChange={(e) => e.target.files?.[0] && handleFileToasts(e.target.files[0], setClothesRef)} />
+                  <input type="file" accept="image/*" className="hidden" ref={clothesInputRef} onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0], setClothesRef)} />
                 </div>
 
-                {/* 3. Локация */}
                 <div onClick={() => locationInputRef.current?.click()} className="cursor-pointer border border-dashed border-white/10 hover:border-[#D4FF00]/50 rounded-xl p-2.5 text-center flex flex-col items-center justify-center bg-black/30 relative overflow-hidden h-24">
                   {locationRef ? (
                     <>
@@ -150,7 +151,7 @@ export default function Home() {
                       <span className="text-[11px] font-bold text-white/70">Локация</span>
                     </>
                   )}
-                  <input type="file" accept="image/*" className="hidden" ref={locationInputRef} onChange={(e) => e.target.files?.[0] && handleFileToasts(e.target.files[0], setLocationRef)} />
+                  <input type="file" accept="image/*" className="hidden" ref={locationInputRef} onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0], setLocationRef)} />
                 </div>
               </div>
             </div>
