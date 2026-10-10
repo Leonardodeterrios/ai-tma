@@ -5,7 +5,6 @@ import BrainTab from './components/BrainTab';
 type Engine = 'flux' | 'seedream' | 'seedance' | 'nanobanana';
 type StudioMode = 'freestyle' | 'templates';
 
-// Шаблоны
 const TEMPLATES = [
   { id: 'selfie', icon: '📱', title: 'iPhone Селфи', desc: 'Реалистичное фото в зеркало', basePrompt: 'iphone mirror selfie, flash photography, raw candid photo, 8k resolution, highly detailed, realistic skin texture, casual lighting --ar 3:4' },
   { id: 'golden', icon: '🌅', title: 'Golden Hour', desc: 'Проф. фото на закате', basePrompt: 'professional portrait photography, golden hour lighting, cinematic rim light, bokeh, 85mm lens, highly detailed, photorealistic --ar 4:5' },
@@ -16,7 +15,6 @@ const TEMPLATES = [
 export default function Home() {
   const [activeTab, setActiveTab] = useState('studio');
 
-  // Состояния Студии
   const [studioMode, setStudioMode] = useState<StudioMode>('templates');
   const [selectedTemplate, setSelectedTemplate] = useState(TEMPLATES[0]);
   const [modelDescription, setModelDescription] = useState('');
@@ -26,40 +24,18 @@ export default function Home() {
   const [generatedResults, setGeneratedResults] = useState<{ url: string, type: 'image' | 'video' }[]>([]);
   const [selectedEngine, setSelectedEngine] = useState<Engine>('seedream');
   
-  // Новые фичи: Серия фото и Мульти-референсы
   const [generateCount, setGenerateCount] = useState<1 | 4>(1);
-  const [references, setReferences] = useState<{ id: string, file: File, preview: string, base64: string }[]>([]);
+  const [references, setReferences] = useState<{ id: string, base64: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.src = URL.createObjectURL(file);
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 1024;
-
-        if (width > height && width > maxDim) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
-        } else if (height > maxDim) {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
-        resolve(compressedBase64);
-      };
-      img.onerror = (error) => reject(error);
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
     });
   };
 
@@ -74,8 +50,6 @@ export default function Home() {
       const base64 = await fileToBase64(file);
       return {
         id: Math.random().toString(36).substring(7),
-        file,
-        preview: URL.createObjectURL(file),
         base64
       };
     }));
@@ -99,7 +73,6 @@ export default function Home() {
     
     setIsGenerating(true);
     setGeneratedResults([]);
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
     try {
       const requestData = {
@@ -204,7 +177,7 @@ export default function Home() {
                 <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                   {references.map(ref => (
                     <div key={ref.id} className="relative shrink-0 w-16 h-16 rounded-xl border border-white/10 overflow-hidden group">
-                      <img src={ref.preview} alt="ref" className="w-full h-full object-cover" />
+                      <img src={ref.base64} alt="ref" className="w-full h-full object-cover" />
                       <button onClick={() => removeReference(ref.id)} className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full text-white text-[10px] flex items-center justify-center backdrop-blur-sm">✕</button>
                     </div>
                   ))}
