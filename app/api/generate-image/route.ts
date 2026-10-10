@@ -40,9 +40,8 @@ function extractJsonArray(text: string): string[] | null {
 // Превращаем data URL референса в публичную ссылку через ImgBB
 async function uploadBase64ToUrl(base64DataUrl: string): Promise<string> {
   const IMGBB_KEY = process.env.IMGBB_KEY;
-  if (!IMGBB_KEY) throw new Error('IMGBB_KEY не настроен в окружении');
+  if (!IMGBB_KEY) throw new Error('Не настроен ключ IMGBB_KEY в настройках Vercel');
 
-  // Из data URL вытаскиваем чистый base64 без префикса
   const base64Data = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
 
   const formData = new URLSearchParams();
@@ -54,8 +53,18 @@ async function uploadBase64ToUrl(base64DataUrl: string): Promise<string> {
     body: formData
   });
 
-  const data = await res.json();
-  if (!res.ok || !data || !data.success) throw new Error(data?.data?.url || data?.error?.message || 'ImgBB ошибка');
+  const text = await res.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Ошибка ответа ImgBB: ${text}`);
+  }
+
+  if (!res.ok || !data || !data.success) {
+    throw new Error(data?.error?.message || 'Не удалось загрузить картинку-референс на хостинг ImgBB');
+  }
+  
   return data.data.url;
 }
 
@@ -74,7 +83,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Промпт не может быть пустым' }, { status: 400 });
     }
 
-    // ИСПРАВЛЕНО: теперь используется правильное имя ключа из настроек Vercel
     const openAiKey = process.env.OPENAI_API_KEY;
     let finalPrompts: string[] = [prompt];
 
