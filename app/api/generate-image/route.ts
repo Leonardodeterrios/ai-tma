@@ -42,36 +42,41 @@ async function uploadBase64ToUrl(base64DataUrl: string): Promise<string> {
   const IMGBB_KEY = process.env.IMGBB_KEY;
   if (!IMGBB_KEY) throw new Error('Не настроен ключ IMGBB_KEY в настройках Vercel');
 
-  const base64Data = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
+  const cleanBase64 = base64DataUrl.replace(/^data:image\/\w+;base64,/, '').trim();
 
-  const formData = new URLSearchParams();
+  const formData = new FormData();
   formData.append('key', IMGBB_KEY);
-  formData.append('image', base64Data);
+  formData.append('image', cleanBase64);
 
-  const res = await fetch('https://api.imgbb.com/1/upload', {
-    method: 'POST',
-    body: formData
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-  const text = await res.text();
-  let data: any;
   try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Ошибка ответа ImgBB: ${text}`);
-  }
+    const res = await fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
 
-  if (!res.ok || !data || !data.success) {
-    throw new Error(data?.error?.message || 'Не удалось загрузить картинку-референс на хостинг ImgBB');
+    const data = await res.json();
+    if (!res.ok || !data || !data.success) {
+      throw new Error(data?.error?.message || 'Не удалось загрузить картинку-референс на ImgBB');
+    }
+    
+    return data.data.url;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Превышено время ожидания загрузки картинки (ImgBB timeout)');
+    }
+    throw new Error(err.message || 'Ошибка сети при загрузке референса');
   }
-  
-  return data.data.url;
 }
 
 // Если референс уже ссылка — вернуть её; иначе загрузить через ImgBB
 async function toPublicUrl(ref: string): Promise<string> {
   if (/^https?:\/\//.test(ref)) return ref;
-  // иначе — data URL base64
   return await uploadBase64ToUrl(ref);
 }
 
