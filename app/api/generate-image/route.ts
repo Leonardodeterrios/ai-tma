@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-// Функция для обращения к OpenAI (для перевода и создания серий)
+// Функция для обращения к OpenAI (с защитой от кривых ответов)
 async function callOpenAI(systemPrompt: string, userPrompt: string, apiKey: string) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -9,7 +9,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string, apiKey: stri
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini', // Быстрый и дешевый
+      model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -23,6 +23,21 @@ async function callOpenAI(systemPrompt: string, userPrompt: string, apiKey: stri
   return data.choices[0].message.content;
 }
 
+// Функция для очистки ответа OpenAI, чтобы точно достать массив JSON
+function extractJsonArray(text: string): string[] | null {
+  try {
+    // Ищем квадратные скобки
+    const match = text.match(/\[.*\]/s);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (Array.isArray(parsed)) return parsed;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { prompt, engine, count = 1, references = [], autoTranslate = false } = await req.json();
@@ -32,42 +47,42 @@ export async function POST(req: Request) {
     }
 
     const openAiKey = process.env.OPENAI_KEY;
-    let finalPrompts: string[] = [prompt]; // По умолчанию 1 промпт
+    let finalPrompts: string[] = [prompt]; 
 
     // ==========================================
     // ЛОГИКА ПЕРЕВОДА И СЕРИЙ (Через OpenAI)
     // ==========================================
     if (openAiKey && (autoTranslate || count > 1)) {
       if (count > 1) {
-        // Если просят серию (воронку раздевания/кокетства)
-        const sysPrompt = `Ты - AI-ассистент режиссера для OF моделей. 
-Пользователь дает описание. Твоя задача - создать серию из ${count} последовательных кадров на АНГЛИЙСКОМ языке, которые показывают развитие событий (например, легкое раздевание или изменение позы/эмоции). 
-Ответ должен быть СТРОГО в формате JSON - массив строк. Пример: ["prompt 1", "prompt 2", "prompt 3", "prompt 4"]. Без лишнего текста. В каждом промпте сохраняй описание внешности из оригинала.`;
+        const sysPrompt = `Ты - AI-ассистент режиссера. Пользователь дает описание. Твоя задача - создать серию из ${count} последовательных кадров на АНГЛИЙСКОМ языке, которые показывают развитие событий. Ответь ТОЛЬКО валидным JSON массивом строк. Пример: ["prompt 1", "prompt 2", "prompt 3", "prompt 4"]. Никакого лишнего текста.`;
         
         try {
           const aiResponse = await callOpenAI(sysPrompt, prompt, openAiKey);
-          finalPrompts = JSON.parse(aiResponse);
+          const parsedArray = extractJsonArray(aiResponse);
+          if (parsedArray) {
+            finalPrompts = parsedArray;
+          } else {
+            // Если ИИ не смог дать массив, дублируем промпт
+            finalPrompts = Array(count).fill(prompt);
+          }
         } catch (e) {
           console.error("Ошибка генерации серии через AI", e);
-          // Фолбэк: если AI сломался, просто дублируем промпт
           finalPrompts = Array(count).fill(prompt);
         }
       } else if (autoTranslate) {
-        // Если 1 фото, но нужен перевод
-        const sysPrompt = `Translate the user's prompt to English. Make it optimized for Stable Diffusion/Midjourney. Add terms like "masterpiece, 8k, hyperrealistic" if it's a photo. Reply ONLY with the translated English prompt, no other text.`;
+        const sysPrompt = `Translate the user's prompt to English. Make it optimized for image generation. Reply ONLY with the translated English prompt, no other text.`;
         try {
           const translated = await callOpenAI(sysPrompt, prompt, openAiKey);
-          finalPrompts = [translated];
+          // Очищаем от возможных кавычек
+          finalPrompts = [translated.replace(/^"|"$/g, '').trim()];
         } catch (e) {
           console.error("Ошибка перевода", e);
-          // Оставляем как есть, если ошибка
         }
       }
     }
 
-    // Подготавливаем референс (берем первую картинку, если есть)
+    // Подготавливаем референс
     const primaryReference = references.length > 0 ? references[0] : null;
-    const resultUrls: string[] = [];
 
     // ==========================================
     // ФУНКЦИИ ГЕНЕРАЦИИ ДЛЯ КАЖДОГО ДВИЖКА
@@ -77,18 +92,18 @@ export async function POST(req: Request) {
       const falKey = process.env.FAL_KEY;
       if (!falKey) throw new Error('FAL_KEY не настроен');
 
-      const body: any = {
+      let endpoint = "https://queue.fal.run/fal-ai/flux/dev";
+      let body: any = {
         prompt: currentPrompt,
         image_size: "portrait_4_3",
         enable_safety_checker: false
       };
       
-      // Если есть референс, шлем в image-to-image эндпоинт
-      let endpoint = "https://queue.fal.run/fal-ai/flux/dev";
       if (primaryReference) {
         endpoint = "https://queue.fal.run/fal-ai/flux/dev/image-to-image";
-        body.image_url = primaryReference; // fal принимает base64 data url
-        body.strength = 0.85; // Насколько сильно менять фото
+        // Fal ожидает image_url. Base64 с префиксом должен работать.
+        body.image_url = primaryReference; 
+        body.strength = 0.85;
       }
 
       const res = await fetch(endpoint, {
@@ -100,7 +115,9 @@ export async function POST(req: Request) {
       const text = await res.text();
       let data;
       try { data = JSON.parse(text); } catch { throw new Error(`Ошибка Fal: ${text}`); }
-      if (!res.ok) throw new Error(data.error || JSON.stringify(data));
+      
+      // Если FAL ругается на формат картинки, перехватываем ошибку
+      if (!res.ok) throw new Error(data.detail || data.error || JSON.stringify(data));
       return data.images?.[0]?.url;
     };
 
@@ -115,10 +132,9 @@ export async function POST(req: Request) {
         enable_sync_mode: true
       };
 
-      // Seedream поддерживает image2image через поле image_url
       if (primaryReference) {
         body.image_url = primaryReference;
-        body.image_weight = 0.5; // Баланс между текстом и референсом
+        body.image_weight = 0.5; 
       }
 
       const res = await fetch('https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro', {
@@ -139,17 +155,18 @@ export async function POST(req: Request) {
     // ЗАПУСК ГЕНЕРАЦИЙ
     // ==========================================
 
-    // Мы запускаем генерацию параллельно (Promise.all), чтобы 4 фото генерились одновременно, а не по очереди!
-    const generatePromises = finalPrompts.map(async (p) => {
+    // Ограничиваем количество до 4 на всякий случай
+    const promptsToRun = finalPrompts.slice(0, 4);
+
+    const generatePromises = promptsToRun.map(async (p) => {
       if (engine === 'flux') return await generateWithFlux(p);
       if (engine === 'seedream') return await generateWithSeedream(p);
       
-      // Seedance (Видео)
       if (engine === 'seedance') {
         const waveKey = process.env.WAVESPEED_KEY;
         const body: any = { prompt: p, enable_sync_mode: true };
-        
         let endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/text-to-video';
+        
         if (primaryReference) {
           endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/image-to-video';
           body.image_url = primaryReference;
@@ -165,9 +182,7 @@ export async function POST(req: Request) {
         return data.data?.outputs?.[0] || data.url || data.video_url;
       }
 
-      // Nano Banana
       if (engine === 'nanobanana') {
-         // Для Nano пока оставляем базовую логику без референсов, т.к. Google strict
          const geminiKey = process.env.GEMINI_KEY;
          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`, {
             method: 'POST',
@@ -180,11 +195,16 @@ export async function POST(req: Request) {
       }
     });
 
-    // Дожидаемся всех картинок
     const results = await Promise.all(generatePromises);
 
-    // Возвращаем массив url-ов
-    return NextResponse.json({ urls: results, type: engine === 'seedance' ? 'video' : 'image' });
+    // Фильтруем пустые результаты (если какой-то промис упал)
+    const validResults = results.filter(url => url);
+
+    if (validResults.length === 0) {
+      throw new Error("Не удалось сгенерировать ни одного изображения. Возможно, референс слишком большой или движок не поддерживает формат.");
+    }
+
+    return NextResponse.json({ urls: validResults, type: engine === 'seedance' ? 'video' : 'image' });
 
   } catch (error: any) {
     console.error('Ошибка сервера:', error);
