@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 
+// Функция безопасной загрузки на ImgBB
 async function uploadToImgBB(base64Data: string): Promise<string> {
   const apiKey = process.env.IMGBB_KEY;
-  if (!apiKey) throw new Error('Не настроен IMGBB_KEY');
+  if (!apiKey) throw new Error('Не настроен IMGBB_KEY в Vercel');
 
   const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
 
@@ -17,8 +18,8 @@ async function uploadToImgBB(base64Data: string): Promise<string> {
   });
 
   const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error('Ошибка загрузки референса на хостинг');
+  if (!res.ok || !data || !data.success) {
+    throw new Error(data?.error?.message || 'Ошибка загрузки референса на ImgBB');
   }
 
   return data.data.url;
@@ -29,18 +30,24 @@ export async function POST(req: Request) {
     const { prompt, engine, references = [] } = await req.json();
 
     if (!prompt) {
-      return NextResponse.json({ error: 'Промпт пустой' }, { status: 400 });
+      return NextResponse.json({ error: 'Промпт не может быть пустым' }, { status: 400 });
     }
 
+    // Загружаем первый доступный референс на ImgBB
     let imageUrl: string | null = null;
-    if (references.length > 0 && references[0]) {
-      imageUrl = await uploadToImgBB(references[0]);
+    const firstRef = references.find((r: any) => Boolean(r));
+    if (firstRef) {
+      try {
+        imageUrl = await uploadToImgBB(firstRef);
+      } catch (e: any) {
+        throw new Error('Ошибка обработки референса: ' + e.message);
+      }
     }
 
     let outputUrl = '';
     let mediaType: 'image' | 'video' = 'image';
 
-    // 1. FLUX (Image-to-Image)
+    // 1. FLUX
     if (engine === 'flux') {
       const falKey = process.env.FAL_KEY;
       if (!falKey) throw new Error('FAL_KEY не настроен');
@@ -51,7 +58,7 @@ export async function POST(req: Request) {
       if (imageUrl) {
         endpoint = "https://queue.fal.run/fal-ai/flux/dev/image-to-image";
         body.image_url = imageUrl;
-        body.strength = 0.75; // Сила изменения референса
+        body.strength = 0.8;
       }
 
       const res = await fetch(endpoint, {
@@ -61,11 +68,11 @@ export async function POST(req: Request) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Ошибка Fal.ai');
+      if (!res.ok) throw new Error(data.detail || 'Ошибка генерации Flux');
       outputUrl = data.images?.[0]?.url;
     }
 
-    // 2. SEEDREAM (Image-to-Image / Multi-modal)
+    // 2. SEEDREAM
     else if (engine === 'seedream') {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
@@ -73,7 +80,7 @@ export async function POST(req: Request) {
       const body: any = { prompt, aspect_ratio: "3:4", enable_sync_mode: true };
       if (imageUrl) {
         body.image_url = imageUrl;
-        body.image_weight = 0.8; // Увеличили вес референса, чтобы нейросеть учитывала его сильнее
+        body.image_weight = 0.7;
       }
 
       const res = await fetch('https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro', {
@@ -83,11 +90,11 @@ export async function POST(req: Request) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Ошибка WaveSpeed');
+      if (!res.ok) throw new Error(data.message || 'Ошибка генерации Seedream');
       outputUrl = data.data?.outputs?.[0] || data.url || data.output?.url;
     }
 
-    // 3. SEEDANCE (Видео из фото или текста)
+    // 3. SEEDANCE
     else if (engine === 'seedance') {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
@@ -107,58 +114,37 @@ export async function POST(req: Request) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Ошибка Seedance');
+      if (!res.ok) throw new Error(data.message || 'Ошибка генерации Seedance');
       outputUrl = data.data?.outputs?.[0] || data.url || data.video_url;
       mediaType = 'video';
     }
 
-    // 4. NANO (Gemini / Imagen 3 с поддержкой референса)
+    // 4. NANO (GEMINI / IMAGEN 3)
     else if (engine === 'nanobanana') {
       const geminiKey = process.env.GEMINI_KEY;
       if (!geminiKey) throw new Error('GEMINI_KEY не настроен');
 
-      // Передаем картинку и промпт в گوگل Gemini, если есть референс
-      const parts: any[] = [{ text: prompt }];
-      if (imageUrl) {
-        parts.push({
-          inline_data: {
-            mime_type: "image/jpeg",
-            data: references[0].includes(',') ? references[0].split(',')[1] : references[0]
-          }
-        });
-      }
-
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts }]
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Ошибка Google Gemini');
-
-      // Если используется текстовая модель с генерацией, либо если это Imagen:
-      // Для Imagen оставляем старый метод, но с поддержкой текста:
-      const imagenRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instances: [{ prompt: imageUrl ? `${prompt} (based on reference image)` : prompt }],
+          instances: [{ prompt }],
           parameters: { sampleCount: 1, aspectRatio: "3:4" }
         })
       });
 
-      const imagenData = await imagenRes.json();
-      const base64Image = imagenData.predictions?.[0]?.bytesBase64Encoded;
-      if (!base64Image) throw new Error('Google не вернул картинку');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Ошибка Google Imagen');
 
-      outputUrl = `data:image/jpeg;base64,${base64Image}`;
+      const rawBase64 = data.predictions?.[0]?.bytesBase64Encoded;
+      if (!rawBase64) throw new Error('Google не вернул изображение');
+
+      // Для избежания ошибок валидации URL закручиваем base64 через ImgBB
+      outputUrl = await uploadToImgBB(rawBase64);
     }
 
     if (!outputUrl) {
-      throw new Error('Не удалось получить результат от нейросети');
+      throw new Error('Итоговая ссылка на медиафайл пуста');
     }
 
     return NextResponse.json({
@@ -167,7 +153,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error('Ошибка:', error);
+    console.error('Ошибка сервера:', error);
     return NextResponse.json({ error: error.message || 'Ошибка сервера' }, { status: 500 });
   }
 }
