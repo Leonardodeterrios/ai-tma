@@ -74,7 +74,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Промпт не может быть пустым' }, { status: 400 });
     }
 
-    const openAiKey = process.env.OPENAI_KEY;
+    // ИСПРАВЛЕНО: теперь используется правильное имя ключа из настроек Vercel
+    const openAiKey = process.env.OPENAI_API_KEY;
     let finalPrompts: string[] = [prompt];
 
     // Логика перевода и серия промптов
