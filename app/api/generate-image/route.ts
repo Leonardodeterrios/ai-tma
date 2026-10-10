@@ -1,49 +1,15 @@
 import { NextResponse } from 'next/server';
 
-async function callOpenAI(systemPrompt: string, userPrompt: string, apiKey: string) {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.7
-    })
-  });
+// Функция отправки картинки на ImgBB
+async function uploadToImgBB(base64Data: string): Promise<string> {
+  const apiKey = process.env.IMGBB_KEY;
+  if (!apiKey) throw new Error('Не настроен IMGBB_KEY');
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || 'Ошибка OpenAI');
-  return data.choices[0].message.content;
-}
-
-function extractJsonArray(text: string): string[] | null {
-  try {
-    const match = text.match(/\[[\s\S]*\]/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      if (Array.isArray(parsed)) return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function uploadBase64ToUrl(base64DataUrl: string): Promise<string> {
-  const IMGBB_KEY = process.env.IMGBB_KEY;
-  if (!IMGBB_KEY) throw new Error('Не настроен IMGBB_KEY на Vercel');
-
-  const base64Data = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
+  const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
 
   const params = new URLSearchParams();
-  params.append('key', IMGBB_KEY);
-  params.append('image', base64Data);
+  params.append('key', apiKey);
+  params.append('image', cleanBase64);
 
   const res = await fetch('https://api.imgbb.com/1/upload', {
     method: 'POST',
@@ -52,8 +18,8 @@ async function uploadBase64ToUrl(base64DataUrl: string): Promise<string> {
   });
 
   const data = await res.json();
-  if (!res.ok || !data || !data.success) {
-    throw new Error(data?.error?.message || 'Ошибка загрузки в ImgBB');
+  if (!res.ok || !data.success) {
+    throw new Error('Ошибка загрузки референса на хостинг');
   }
 
   return data.data.url;
@@ -61,53 +27,32 @@ async function uploadBase64ToUrl(base64DataUrl: string): Promise<string> {
 
 export async function POST(req: Request) {
   try {
-    const { prompt, engine, count = 1, references = [], autoTranslate = false } = await req.json();
+    const { prompt, engine, references = [] } = await req.json();
 
     if (!prompt) {
-      return NextResponse.json({ error: 'Промпт не может быть пустым' }, { status: 400 });
+      return NextResponse.json({ error: 'Промпт пустой' }, { status: 400 });
     }
 
-    const openAiKey = process.env.OPENAI_API_KEY;
-    let finalPrompts: string[] = [prompt];
-
-    if (openAiKey && (autoTranslate || count > 1)) {
-      if (count > 1) {
-        const sysPrompt = `Ты - AI-ассистент режиссера. Твоя задача - создать серию из ${count} кадров на АНГЛИЙСКОМ. Ответь ТОЛЬКО JSON массивом строк: ["prompt 1", "prompt 2"]`;
-        try {
-          const aiResponse = await callOpenAI(sysPrompt, prompt, openAiKey);
-          const parsedArray = extractJsonArray(aiResponse);
-          finalPrompts = parsedArray && parsedArray.length > 0 ? parsedArray : Array(count).fill(prompt);
-        } catch (e) {
-          finalPrompts = Array(count).fill(prompt);
-        }
-      } else if (autoTranslate) {
-        const sysPrompt = `Translate prompt to English for image generation. Reply ONLY with translated text.`;
-        try {
-          const translated = await callOpenAI(sysPrompt, prompt, openAiKey);
-          finalPrompts = [translated.replace(/^"|"$/g, '').trim()];
-        } catch (e) {}
-      }
-    }
-
-    let referenceUrl: string | null = null;
+    // Если есть референс — загружаем его на ImgBB
+    let imageUrl: string | null = null;
     if (references.length > 0 && references[0]) {
-      try {
-        referenceUrl = await uploadBase64ToUrl(references[0]);
-      } catch (err: any) {
-        throw new Error('Ошибка референса: ' + err.message);
-      }
+      imageUrl = await uploadToImgBB(references[0]);
     }
 
-    const generateWithFlux = async (currentPrompt: string) => {
+    let outputUrl = '';
+    let mediaType: 'image' | 'video' = 'image';
+
+    // 1. FLUX
+    if (engine === 'flux') {
       const falKey = process.env.FAL_KEY;
       if (!falKey) throw new Error('FAL_KEY не настроен');
 
       let endpoint = "https://queue.fal.run/fal-ai/flux/dev";
-      const body: any = { prompt: currentPrompt, image_size: "portrait_4_3", enable_safety_checker: false };
+      const body: any = { prompt, image_size: "portrait_4_3" };
 
-      if (referenceUrl) {
+      if (imageUrl) {
         endpoint = "https://queue.fal.run/fal-ai/flux/dev/image-to-image";
-        body.image_url = referenceUrl;
+        body.image_url = imageUrl;
         body.strength = 0.85;
       }
 
@@ -118,17 +63,18 @@ export async function POST(req: Request) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Ошибка Fal');
-      return data.images?.[0]?.url;
-    };
+      if (!res.ok) throw new Error(data.detail || 'Ошибка Fal.ai');
+      outputUrl = data.images?.[0]?.url;
+    }
 
-    const generateWithSeedream = async (currentPrompt: string) => {
+    // 2. SEEDREAM
+    else if (engine === 'seedream') {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
 
-      const body: any = { prompt: currentPrompt, aspect_ratio: "3:4", enable_sync_mode: true };
-      if (referenceUrl) {
-        body.image_url = referenceUrl;
+      const body: any = { prompt, aspect_ratio: "3:4", enable_sync_mode: true };
+      if (imageUrl) {
+        body.image_url = imageUrl;
         body.image_weight = 0.5;
       }
 
@@ -140,19 +86,20 @@ export async function POST(req: Request) {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Ошибка WaveSpeed');
-      return data.data?.outputs?.[0] || data.url || data.output?.url;
-    };
+      outputUrl = data.data?.outputs?.[0] || data.url || data.output?.url;
+    }
 
-    const generateWithSeedance = async (currentPrompt: string) => {
+    // 3. SEEDANCE (Видео)
+    else if (engine === 'seedance') {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
 
-      const body: any = { prompt: currentPrompt, enable_sync_mode: true };
+      const body: any = { prompt, enable_sync_mode: true };
       let endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/text-to-video';
 
-      if (referenceUrl) {
+      if (imageUrl) {
         endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/image-to-video';
-        body.image_url = referenceUrl;
+        body.image_url = imageUrl;
       }
 
       const res = await fetch(endpoint, {
@@ -162,11 +109,13 @@ export async function POST(req: Request) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Ошибка WaveSpeed Video');
-      return data.data?.outputs?.[0] || data.url || data.video_url;
-    };
+      if (!res.ok) throw new Error(data.message || 'Ошибка Seedance');
+      outputUrl = data.data?.outputs?.[0] || data.url || data.video_url;
+      mediaType = 'video';
+    }
 
-    const generateWithNano = async (currentPrompt: string) => {
+    // 4. NANO (Gemini / Imagen)
+    else if (engine === 'nanobanana') {
       const geminiKey = process.env.GEMINI_KEY;
       if (!geminiKey) throw new Error('GEMINI_KEY не настроен');
 
@@ -174,49 +123,31 @@ export async function POST(req: Request) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          instances: [{ prompt: currentPrompt }],
+          instances: [{ prompt }],
           parameters: { sampleCount: 1, aspectRatio: "3:4" }
         })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Ошибка Google Gemini');
+      if (!res.ok) throw new Error(data.error?.message || 'Ошибка Google');
 
       const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
       if (!base64Image) throw new Error('Google не вернул картинку');
 
-      return `data:image/jpeg;base64,${base64Image}`;
-    };
+      outputUrl = `data:image/jpeg;base64,${base64Image}`;
+    }
 
-    const promptsToRun = finalPrompts.slice(0, 4);
-
-    const generatePromises = promptsToRun.map(async (p) => {
-      try {
-        if (engine === 'flux') return await generateWithFlux(p);
-        if (engine === 'seedream') return await generateWithSeedream(p);
-        if (engine === 'seedance') return await generateWithSeedance(p);
-        if (engine === 'nanobanana') return await generateWithNano(p);
-        throw new Error('Неизвестный движок');
-      } catch (err: any) {
-        console.error(err);
-        return null;
-      }
-    });
-
-    const results = await Promise.all(generatePromises);
-    const validResults = results.filter((url): url is string => Boolean(url));
-
-    if (validResults.length === 0) {
-      throw new Error("Не удалось сгенерировать. Проверьте баланс на сервисах и ключи.");
+    if (!outputUrl) {
+      throw new Error('Не удалось получить результат от нейросети');
     }
 
     return NextResponse.json({
-      urls: validResults,
-      type: engine === 'seedance' ? 'video' : 'image'
+      urls: [outputUrl],
+      type: mediaType
     });
 
   } catch (error: any) {
-    console.error('Ошибка сервера:', error);
-    return NextResponse.json({ error: error.message || 'Ошибка API' }, { status: 500 });
+    console.error('Ошибка:', error);
+    return NextResponse.json({ error: error.message || 'Ошибка сервера' }, { status: 500 });
   }
 }
