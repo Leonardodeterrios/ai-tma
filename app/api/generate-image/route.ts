@@ -23,8 +23,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string, apiKey: stri
   return data.choices[0].message.content;
 }
 
-// Достаем чистый JSON-массив из ответа OpenAI.
-// ВАЖНО: без флага /s, чтобы проект собирался на любой цели TS (ES2017 и ниже).
+// Достаем чистый JSON-массив из ответа OpenAI. Без флага /s для поддержки старых стандартов TS.
 function extractJsonArray(text: string): string[] | null {
   try {
     const match = text.match(/\[[\s\S]*\]/);
@@ -82,6 +81,15 @@ export async function POST(req: Request) {
     // Берем первый референс (Flux/Seedream принимают одну картинку для img2img)
     const primaryReference = references.length > 0 ? references[0] : null;
 
+    // ОЧИЩАЕМ BASE64 ДЛЯ FAL.AI (чиним ошибку "did not match the expected pattern")
+    let cleanReference = primaryReference;
+    if (cleanReference && cleanReference.startsWith('data:')) {
+      const base64Data = cleanReference.split(',')[1];
+      if (base64Data) {
+        cleanReference = `data:image/jpeg;base64,${base64Data}`;
+      }
+    }
+
     // ==========================================
     // 1. FAL.AI (FLUX)
     // ==========================================
@@ -96,9 +104,9 @@ export async function POST(req: Request) {
         enable_safety_checker: false
       };
 
-      if (primaryReference) {
+      if (cleanReference) {
         endpoint = "https://queue.fal.run/fal-ai/flux/dev/image-to-image";
-        body.image_url = primaryReference;
+        body.image_url = cleanReference;
         body.strength = 0.85;
       }
 
@@ -131,8 +139,8 @@ export async function POST(req: Request) {
         enable_sync_mode: true
       };
 
-      if (primaryReference) {
-        body.image_url = primaryReference;
+      if (cleanReference) {
+        body.image_url = cleanReference;
         body.image_weight = 0.5;
       }
 
@@ -162,9 +170,9 @@ export async function POST(req: Request) {
       const body: any = { prompt: currentPrompt, enable_sync_mode: true };
       let endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/text-to-video';
 
-      if (primaryReference) {
+      if (cleanReference) {
         endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/image-to-video';
-        body.image_url = primaryReference;
+        body.image_url = cleanReference;
       }
 
       const res = await fetch(endpoint, {
