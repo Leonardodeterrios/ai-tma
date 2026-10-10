@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 
-// Функция для обращения к OpenAI
 async function callOpenAI(systemPrompt: string, userPrompt: string, apiKey: string) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -23,7 +22,6 @@ async function callOpenAI(systemPrompt: string, userPrompt: string, apiKey: stri
   return data.choices[0].message.content;
 }
 
-// Достаем чистый JSON-массив из ответа OpenAI.
 function extractJsonArray(text: string): string[] | null {
   try {
     const match = text.match(/\[[\s\S]*\]/);
@@ -37,47 +35,28 @@ function extractJsonArray(text: string): string[] | null {
   }
 }
 
-// Превращаем data URL референса в публичную ссылку через ImgBB
 async function uploadBase64ToUrl(base64DataUrl: string): Promise<string> {
   const IMGBB_KEY = process.env.IMGBB_KEY;
-  if (!IMGBB_KEY) throw new Error('Не настроен ключ IMGBB_KEY в настройках Vercel');
+  if (!IMGBB_KEY) throw new Error('Не настроен IMGBB_KEY на Vercel');
 
-  const cleanBase64 = base64DataUrl.replace(/^data:image\/\w+;base64,/, '').trim();
+  const base64Data = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
 
-  const formData = new FormData();
-  formData.append('key', IMGBB_KEY);
-  formData.append('image', cleanBase64);
+  const params = new URLSearchParams();
+  params.append('key', IMGBB_KEY);
+  params.append('image', base64Data);
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const res = await fetch('https://api.imgbb.com/1/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
 
-  try {
-    const res = await fetch('https://api.imgbb.com/1/upload', {
-      method: 'POST',
-      body: formData,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    const data = await res.json();
-    if (!res.ok || !data || !data.success) {
-      throw new Error(data?.error?.message || 'Не удалось загрузить картинку-референс на ImgBB');
-    }
-    
-    return data.data.url;
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error('Превышено время ожидания загрузки картинки (ImgBB timeout)');
-    }
-    throw new Error(err.message || 'Ошибка сети при загрузке референса');
+  const data = await res.json();
+  if (!res.ok || !data || !data.success) {
+    throw new Error(data?.error?.message || 'Ошибка загрузки в ImgBB');
   }
-}
 
-// Если референс уже ссылка — вернуть её; иначе загрузить через ImgBB
-async function toPublicUrl(ref: string): Promise<string> {
-  if (/^https?:\/\//.test(ref)) return ref;
-  return await uploadBase64ToUrl(ref);
+  return data.data.url;
 }
 
 export async function POST(req: Request) {
@@ -91,45 +70,40 @@ export async function POST(req: Request) {
     const openAiKey = process.env.OPENAI_API_KEY;
     let finalPrompts: string[] = [prompt];
 
-    // Логика перевода и серия промптов
     if (openAiKey && (autoTranslate || count > 1)) {
       if (count > 1) {
-        const sysPrompt = `Ты - AI-ассистент режиссера. Пользователь дает описание. Твоя задача - создать серию из ${count} последовательных кадров на АНГЛИЙСКОМ языке, которые показывают развитие событий. Ответь ТОЛЬКО валидным JSON массивом строк. Пример: ["prompt 1", "prompt 2", "prompt 3", "prompt 4"]. Никакого лишнего текста.`;
-
+        const sysPrompt = `Ты - AI-ассистент режиссера. Твоя задача - создать серию из ${count} кадров на АНГЛИЙСКОМ. Ответь ТОЛЬКО JSON массивом строк: ["prompt 1", "prompt 2"]`;
         try {
           const aiResponse = await callOpenAI(sysPrompt, prompt, openAiKey);
           const parsedArray = extractJsonArray(aiResponse);
           finalPrompts = parsedArray && parsedArray.length > 0 ? parsedArray : Array(count).fill(prompt);
         } catch (e) {
-          console.error("Ошибка генерации серии через AI", e);
           finalPrompts = Array(count).fill(prompt);
         }
       } else if (autoTranslate) {
-        const sysPrompt = `Translate the user's prompt to English. Make it optimized for image generation. Add terms like "masterpiece, 8k, hyperrealistic, highly detailed" if it's a photo. Reply ONLY with the translated English prompt, no other text.`;
+        const sysPrompt = `Translate prompt to English for image generation. Reply ONLY with translated text.`;
         try {
           const translated = await callOpenAI(sysPrompt, prompt, openAiKey);
           finalPrompts = [translated.replace(/^"|"$/g, '').trim()];
-        } catch (e) {
-          console.error("Ошибка перевода", e);
-        }
+        } catch (e) {}
       }
     }
 
-    // Референсы: превратить в публичную ссылку
-    const primaryReference = references.length > 0 ? references[0] : null;
-    const referenceUrl = primaryReference ? await toPublicUrl(primaryReference) : null;
+    let referenceUrl: string | null = null;
+    if (references.length > 0 && references[0]) {
+      try {
+        referenceUrl = await uploadBase64ToUrl(references[0]);
+      } catch (err: any) {
+        throw new Error('Ошибка референса: ' + err.message);
+      }
+    }
 
-    // Функции-генераторы для движков
     const generateWithFlux = async (currentPrompt: string) => {
-      if (!process.env.FAL_KEY) throw new Error('FAL_KEY не настроен');
       const falKey = process.env.FAL_KEY;
+      if (!falKey) throw new Error('FAL_KEY не настроен');
 
       let endpoint = "https://queue.fal.run/fal-ai/flux/dev";
-      const body: any = {
-        prompt: currentPrompt,
-        image_size: "portrait_4_3",
-        enable_safety_checker: false
-      };
+      const body: any = { prompt: currentPrompt, image_size: "portrait_4_3", enable_safety_checker: false };
 
       if (referenceUrl) {
         endpoint = "https://queue.fal.run/fal-ai/flux/dev/image-to-image";
@@ -139,17 +113,12 @@ export async function POST(req: Request) {
 
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          "Authorization": `Key ${falKey}`,
-          "Content-Type": "application/json"
-        },
+        headers: { "Authorization": `Key ${falKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
 
-      const text = await res.text();
-      let data: any;
-      try { data = JSON.parse(text); } catch { throw new Error(`Ошибка Fal: ${text}`); }
-      if (!res.ok) throw new Error(data.detail || data.error || JSON.stringify(data));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Ошибка Fal');
       return data.images?.[0]?.url;
     };
 
@@ -157,12 +126,7 @@ export async function POST(req: Request) {
       const waveKey = process.env.WAVESPEED_KEY;
       if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
 
-      const body: any = {
-        prompt: currentPrompt,
-        aspect_ratio: "3:4",
-        enable_sync_mode: true
-      };
-
+      const body: any = { prompt: currentPrompt, aspect_ratio: "3:4", enable_sync_mode: true };
       if (referenceUrl) {
         body.image_url = referenceUrl;
         body.image_weight = 0.5;
@@ -170,17 +134,12 @@ export async function POST(req: Request) {
 
       const res = await fetch('https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${waveKey}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${waveKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
 
-      const text = await res.text();
-      let data: any;
-      try { data = JSON.parse(text); } catch { throw new Error(`Ошибка WaveSpeed: ${text}`); }
-      if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Ошибка WaveSpeed');
       return data.data?.outputs?.[0] || data.url || data.output?.url;
     };
 
@@ -198,17 +157,12 @@ export async function POST(req: Request) {
 
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${waveKey}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${waveKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
 
-      const text = await res.text();
-      let data: any;
-      try { data = JSON.parse(text); } catch { throw new Error(`Ошибка WaveSpeed: ${text}`); }
-      if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Ошибка WaveSpeed Video');
       return data.data?.outputs?.[0] || data.url || data.video_url;
     };
 
@@ -216,41 +170,24 @@ export async function POST(req: Request) {
       const geminiKey = process.env.GEMINI_KEY;
       if (!geminiKey) throw new Error('GEMINI_KEY не настроен');
 
-      const askGoogle = async (modelName: string) => {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${geminiKey}`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            instances: [{ prompt: currentPrompt }],
-            parameters: { sampleCount: 1, aspectRatio: "3:4" }
-          })
-        });
-        const text = await res.text();
-        try {
-          return { ok: res.ok, data: JSON.parse(text) };
-        } catch {
-          return { ok: false, data: { error: { message: text } } };
-        }
-      };
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instances: [{ prompt: currentPrompt }],
+          parameters: { sampleCount: 1, aspectRatio: "3:4" }
+        })
+      });
 
-      let result = await askGoogle('imagen-3.0-generate-002');
-      if (!result.ok && result.data?.error?.message?.includes('not found')) {
-        result = await askGoogle('imagen-3.0-generate-001');
-      }
-      if (!result.ok) {
-        throw new Error(result.data?.error?.message || JSON.stringify(result.data));
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Ошибка Google Gemini');
 
-      const base64Image = result.data.predictions?.[0]?.bytesBase64Encoded || result.data.predictions?.[0]?.bytesBase64;
-      if (!base64Image) {
-        throw new Error('Google не вернул картинку (возможно, сработал фильтр безопасности)');
-      }
+      const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
+      if (!base64Image) throw new Error('Google не вернул картинку');
 
       return `data:image/jpeg;base64,${base64Image}`;
     };
 
-    // Запуск параллельно по 4 промпта
     const promptsToRun = finalPrompts.slice(0, 4);
 
     const generatePromises = promptsToRun.map(async (p) => {
@@ -259,9 +196,9 @@ export async function POST(req: Request) {
         if (engine === 'seedream') return await generateWithSeedream(p);
         if (engine === 'seedance') return await generateWithSeedance(p);
         if (engine === 'nanobanana') return await generateWithNano(p);
-        throw new Error('Неизвестный движок: ' + engine);
+        throw new Error('Неизвестный движок');
       } catch (err: any) {
-        console.error(`Ошибка генерации для промпта "${p}":`, err.message);
+        console.error(err);
         return null;
       }
     });
@@ -270,7 +207,7 @@ export async function POST(req: Request) {
     const validResults = results.filter((url): url is string => Boolean(url));
 
     if (validResults.length === 0) {
-      throw new Error("Не удалось сгенерировать ни одного изображения. Проверьте ключи, референс и лимиты движка.");
+      throw new Error("Не удалось сгенерировать. Проверьте баланс на сервисах и ключи.");
     }
 
     return NextResponse.json({
