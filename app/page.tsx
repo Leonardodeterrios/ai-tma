@@ -21,16 +21,47 @@ export default function Home() {
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultType, setResultType] = useState<'image' | 'video'>('image');
 
-  // Референс
   const [faceRef, setFaceRef] = useState<string | null>(null);
   const faceInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (file: File, setter: (val: string) => void) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (e.target?.result) setter(e.target.result as string);
-    };
-    reader.readAsDataURL(file);
+  // Сжимаем картинку прямо в телефоне до легкого размера (макс 800px)
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 800;
+
+        if (width > height && width > maxDim) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else if (height > maxDim) {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+        resolve(compressedBase64);
+      };
+      img.onerror = (error) => reject(error);
+    });
+  };
+
+  const handleFileSelect = async (file: File) => {
+    try {
+      const compressed = await compressImage(file);
+      setFaceRef(compressed);
+    } catch (e) {
+      alert("Не удалось загрузить фото");
+    }
   };
 
   const handleGenerate = async () => {
@@ -70,7 +101,6 @@ export default function Home() {
   return (
     <main className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
       
-      {/* Шапка с нашими цветами и названием */}
       <div className="flex justify-between items-center px-4 py-3 bg-[#0A0A0A]/90 backdrop-blur-md border-b border-white/5 z-40">
         <div>
           <div className="text-[14px] font-black tracking-wider text-white">ACCESS</div>
@@ -81,20 +111,15 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Основной контент */}
       <div className="flex-1 overflow-y-auto pb-32 pt-4 px-4">
         
-        {/* ВКЛАДКА: ГЛАВНАЯ */}
         {activeTab === 'home' && (
           <div className="space-y-6">
-            
-            {/* Поиск */}
             <div className="bg-[#161618] border border-white/5 rounded-2xl px-4 py-3 flex items-center gap-3">
               <span className="text-white/40">🔍</span>
               <input type="text" placeholder="Поиск нейросетей, шаблонов, инструментов..." className="w-full bg-transparent border-none focus:outline-none text-xs text-white placeholder-white/30" />
             </div>
 
-            {/* Фильтры */}
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
               <button className="bg-white text-black px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap">Все</button>
               <button className="bg-[#161618] text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap">Без цензуры 🔞</button>
@@ -102,7 +127,6 @@ export default function Home() {
               <button className="bg-[#161618] text-white/70 border border-white/5 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap">Видео</button>
             </div>
 
-            {/* Баннер создания */}
             <div onClick={() => setActiveTab('studio')} className="relative rounded-2xl overflow-hidden border border-white/5 bg-gradient-to-br from-[#161618] to-[#1A1A1D] p-5 cursor-pointer group">
               <div className="absolute top-3 left-3 flex gap-2">
                 <span className="bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded uppercase">Seedream 5.0</span>
@@ -114,7 +138,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Популярные нейросети */}
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <h3 className="text-sm font-bold text-white tracking-wide">Популярные нейросети</h3>
@@ -139,11 +162,9 @@ export default function Home() {
                 </button>
               </div>
             </div>
-
           </div>
         )}
 
-        {/* ВКЛАДКА: ИДЕИ */}
         {activeTab === 'ideas' && (
           <div className="space-y-4">
             <h2 className="text-xl font-bold">Идеи и тренды</h2>
@@ -160,7 +181,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* ВКЛАДКА: СТУДИЯ (СОЗДАТЬ) */}
         {activeTab === 'studio' && (
           <div className="space-y-5">
             <div className="flex justify-between items-center">
@@ -176,16 +196,15 @@ export default function Home() {
               <button onClick={() => setCreateMode('video')} className={`px-4 py-2 rounded-xl text-xs font-bold border ${createMode === 'video' ? 'bg-[#D4FF00] text-black border-[#D4FF00]' : 'bg-[#161618] text-white/70 border-white/5'}`}>🎬 Видео</button>
             </div>
 
-            {/* Загрузка референса лица */}
             <div className="bg-[#161618] border border-white/5 rounded-2xl p-4 flex justify-between items-center">
               <div>
                 <div className="text-sm font-bold">Референс персонажа</div>
-                <div className="text-[10px] text-white/50">Сохранение лица и стиля</div>
+                <div className="text-[10px] text-white/50">Авто-сжатие и передача в ИИ</div>
               </div>
               <button onClick={() => faceInputRef.current?.click()} className="bg-[#D4FF00]/10 text-[#D4FF00] px-3 py-1.5 rounded-lg text-xs font-bold border border-[#D4FF00]/20">
                 {faceRef ? 'Заменить' : '+ Загрузить'}
               </button>
-              <input type="file" accept="image/*" className="hidden" ref={faceInputRef} onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0], setFaceRef)} />
+              <input type="file" accept="image/*" className="hidden" ref={faceInputRef} onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
             </div>
 
             {faceRef && (
@@ -212,7 +231,6 @@ export default function Home() {
               {isGenerating ? 'Создаем шедевр...' : 'Сгенерировать'}
             </button>
 
-            {/* Результат */}
             {isGenerating ? (
               <div className="flex flex-col items-center justify-center py-16 bg-[#161618] rounded-2xl border border-white/5">
                 <div className="w-8 h-8 border-4 border-white/10 border-t-[#D4FF00] rounded-full animate-spin mb-2"></div>
@@ -235,7 +253,6 @@ export default function Home() {
 
       </div>
 
-      {/* Нижняя навигация в наших фирменных цветах */}
       <div className="fixed bottom-0 w-full bg-[#0A0A0A]/95 backdrop-blur-xl border-t border-white/5 pb-8 pt-3 z-50">
         <div className="flex justify-around items-center max-w-md mx-auto">
           <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 ${activeTab === 'home' ? 'text-[#D4FF00]' : 'text-white/40'}`}>
