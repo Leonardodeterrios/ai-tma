@@ -8,36 +8,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Промпт пустой' }, { status: 400 });
     }
 
-    // Берем первый референс (если есть) как есть (base64)
-    const referenceImage = references.length > 0 ? references[0] : null;
-
-    let outputUrl = '';
-    let mediaType: 'image' | 'video' = 'image';
-
     const waveKey = process.env.WAVESPEED_KEY;
     if (!waveKey) {
       throw new Error('Не настроен WAVESPEED_KEY в Vercel');
     }
 
-    // Формируем запрос напрямую в WaveSpeed, передавая base64 или пустой запрос
     const isVideo = engine === 'seedance';
-    const endpoint = isVideo 
-      ? 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/text-to-video'
-      : 'https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro';
+    let referenceImage = references.length > 0 ? references[0] : null;
 
+    let endpoint = '';
     const body: any = { 
       prompt, 
       enable_sync_mode: true 
     };
 
-    if (!isVideo) {
-      body.aspect_ratio = "3:4";
-    }
-
-    // Если есть референс, передаем его
-    if (referenceImage) {
-      body.image_url = referenceImage;
-      body.image_weight = 0.8;
+    if (isVideo) {
+      // Видеогенерация (Seedance)
+      endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/text-to-video';
+      // Если у вас видеомодель тоже поддерживает референс, передайте его здесь (зависит от API)
+      if (referenceImage) {
+        body.image_url = referenceImage;
+      }
+    } else {
+      // Генерация изображений (Seedream)
+      if (referenceImage) {
+        // Если есть референс, используем эндпоинт редактирования/img2img
+        endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro/edit';
+        body.image_url = referenceImage;
+        body.image_weight = 0.8;
+      } else {
+        // Если референса нет — стандартный text-to-image
+        endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro';
+        body.aspect_ratio = "3:4";
+      }
     }
 
     const res = await fetch(endpoint, {
@@ -55,8 +58,8 @@ export async function POST(req: Request) {
       throw new Error(data.message || data.error || 'Ошибка со стороны WaveSpeed API');
     }
 
-    outputUrl = data.data?.outputs?.[0] || data.url || data.output?.url || data.video_url;
-    if (isVideo) mediaType = 'video';
+    const outputUrl = data.data?.outputs?.[0] || data.url || data.output?.url || data.video_url;
+    const mediaType = isVideo ? 'video' : 'image';
 
     if (!outputUrl) {
       throw new Error('Нейросеть не смогла вернуть ссылку на результат');
