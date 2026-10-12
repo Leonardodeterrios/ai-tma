@@ -1,27 +1,5 @@
 import { NextResponse } from 'next/server';
 
-async function uploadToImgBB(base64Data: string): Promise<string> {
-  const apiKey = process.env.IMGBB_KEY;
-  if (!apiKey) throw new Error('Не настроен IMGBB_KEY');
-
-  const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
-  const formData = new URLSearchParams();
-  formData.append('key', apiKey);
-  formData.append('image', cleanBase64);
-
-  const res = await fetch('https://api.imgbb.com/1/upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: formData.toString()
-  });
-
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error('Ошибка загрузки референса на хостинг');
-  }
-  return data.data.url;
-}
-
 export async function POST(req: Request) {
   try {
     const { prompt, engine, references = [] } = await req.json();
@@ -30,73 +8,64 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Промпт пустой' }, { status: 400 });
     }
 
-    let imageUrl: string | null = null;
-    if (references.length > 0 && references[0]) {
-      imageUrl = await uploadToImgBB(references[0]);
-    }
+    // Берем первый референс (если есть) как есть (base64)
+    const referenceImage = references.length > 0 ? references[0] : null;
 
     let outputUrl = '';
     let mediaType: 'image' | 'video' = 'image';
 
-    if (engine === 'seedream') {
-      const waveKey = process.env.WAVESPEED_KEY;
-      if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
-
-      const body: any = { prompt, aspect_ratio: "3:4", enable_sync_mode: true };
-      if (imageUrl) {
-        body.image_url = imageUrl;
-        body.image_weight = 0.75;
-      }
-
-      const res = await fetch('https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${waveKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Ошибка генерации');
-      outputUrl = data.data?.outputs?.[0] || data.url || data.output?.url;
-    } 
-    else if (engine === 'seedance') {
-      const waveKey = process.env.WAVESPEED_KEY;
-      if (!waveKey) throw new Error('WAVESPEED_KEY не настроен');
-
-      const body: any = { prompt, enable_sync_mode: true };
-      let endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/text-to-video';
-      if (imageUrl) {
-        endpoint = 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/image-to-video';
-        body.image_url = imageUrl;
-      }
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${waveKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Ошибка видео');
-      outputUrl = data.data?.outputs?.[0] || data.url || data.video_url;
-      mediaType = 'video';
-    } 
-    else {
-      const falKey = process.env.FAL_KEY;
-      if (!falKey) throw new Error('FAL_KEY не настроен');
-
-      const res = await fetch("https://queue.fal.run/fal-ai/flux/dev", {
-        method: 'POST',
-        headers: { "Authorization": `Key ${falKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, image_size: "portrait_4_3" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Ошибка генерации');
-      outputUrl = data.images?.[0]?.url;
+    const waveKey = process.env.WAVESPEED_KEY;
+    if (!waveKey) {
+      throw new Error('Не настроен WAVESPEED_KEY в Vercel');
     }
 
-    if (!outputUrl) throw new Error('Пустой ответ от нейросети');
+    // Формируем запрос напрямую в WaveSpeed, передавая base64 или пустой запрос
+    const isVideo = engine === 'seedance';
+    const endpoint = isVideo 
+      ? 'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.0/text-to-video'
+      : 'https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro';
+
+    const body: any = { 
+      prompt, 
+      enable_sync_mode: true 
+    };
+
+    if (!isVideo) {
+      body.aspect_ratio = "3:4";
+    }
+
+    // Если есть референс, передаем его
+    if (referenceImage) {
+      body.image_url = referenceImage;
+      body.image_weight = 0.8;
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${waveKey}`, 
+        'Content-Type': 'application/json' 
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Ошибка со стороны WaveSpeed API');
+    }
+
+    outputUrl = data.data?.outputs?.[0] || data.url || data.output?.url || data.video_url;
+    if (isVideo) mediaType = 'video';
+
+    if (!outputUrl) {
+      throw new Error('Нейросеть не смогла вернуть ссылку на результат');
+    }
 
     return NextResponse.json({ urls: [outputUrl], type: mediaType });
 
   } catch (error: any) {
+    console.error('Ошибка бэкенда:', error.message);
     return NextResponse.json({ error: error.message || 'Ошибка сервера' }, { status: 500 });
   }
 }
