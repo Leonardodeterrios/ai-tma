@@ -1,282 +1,333 @@
 'use client';
-import { useState, useRef } from 'react';
-import BrainTab from './components/BrainTab';
+import { useEffect, useState } from 'react';
+import ContentPlan from './components/ContentPlan';
 
-type Engine = 'flux' | 'seedream' | 'seedance' | 'nanobanana';
-type StudioMode = 'freestyle' | 'templates';
+const neonGreen = '#d8ff4f';
 
-const TEMPLATES = [
-  { id: 'selfie', icon: '📱', title: 'iPhone Селфи', desc: 'Реалистичное фото в зеркало', basePrompt: 'iphone mirror selfie, flash photography, raw candid photo, 8k resolution, highly detailed, realistic skin texture, casual lighting --ar 3:4' },
-  { id: 'golden', icon: '🌅', title: 'Golden Hour', desc: 'Проф. фото на закате', basePrompt: 'professional portrait photography, golden hour lighting, cinematic rim light, bokeh, 85mm lens, highly detailed, photorealistic --ar 4:5' },
-  { id: 'glamour', icon: '🔥', title: 'Студия (18+)', desc: 'Идеальная кожа, свет', basePrompt: 'fashion magazine cover, studio lighting, hyper detailed, soft skin, volumetric lighting, provocative model pose, masterpiece, 8k uhd --ar 4:5' },
-  { id: 'lifestyle', icon: '☕️', title: 'Кафе Lifestyle', desc: 'Живое фото за столиком', basePrompt: 'candid shot, sitting in a cozy coffee shop, natural daylight, blurred background, f/1.8, realistic analog photography, 35mm --ar 4:5' }
-];
+type Msg = { role: 'fan' | 'model'; text: string; time: number };
+type Fan = { id: string; name: string; handle: string; notes: string; stage: number; history: Msg[] };
+type Persona = { name: string; age: string; character: string; languageMode: string; lifeFacts: string; examples: string };
+
+const DEFAULT_PERSONA: Persona = {
+  name: 'Мия',
+  age: '22',
+  character: 'игривая, циничная, но тёплая с теми, кто платит. Любит дразнить.',
+  languageMode: 'ru_en',
+  lifeFacts: 'живу в Бангкоке, есть кот Бублик, люблю аниме',
+  examples: 'Вопрос: Как дела?\nОтвет: приветик) да всё супер, валяюсь пью кофе. а ты чем занят?\n\nВопрос: О чем мечтаешь?\nОтвет: блин, хочу просто чилить у океана и не париться о деньгах 💔',
+};
+
+const STAGES: Record<number, string> = { 1: 'Знакомство', 2: 'Флирт', 3: 'Прогрев', 4: 'Первое PPV', 5: 'Продажа' };
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState('studio');
+  const [brainMode, setBrainMode] = useState('chatter');
+  const [ready, setReady] = useState(false);
 
-  const [studioMode, setStudioMode] = useState<StudioMode>('templates');
-  const [selectedTemplate, setSelectedTemplate] = useState(TEMPLATES[0]);
-  const [modelDescription, setModelDescription] = useState('');
-  const [imagePrompt, setImagePrompt] = useState('');
+  // ---------- ЧАТТЕР: состояние ----------
+  const [persona, setPersona] = useState<Persona>(DEFAULT_PERSONA);
+  const [showPersona, setShowPersona] = useState(false);
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedResults, setGeneratedResults] = useState<{ url: string, type: 'image' | 'video' }[]>([]);
-  const [selectedEngine, setSelectedEngine] = useState<Engine>('seedream');
+  const [fans, setFans] = useState<Fan[]>([]);
+  const [activeFanId, setActiveFanId] = useState<string | null>(null);
+  const [newFanName, setNewFanName] = useState('');
+  const [showFanNotes, setShowFanNotes] = useState(false);
 
-  const [generateCount, setGenerateCount] = useState<1 | 4>(1);
-  const [references, setReferences] = useState<{ id: string, file: File, preview: string, base64: string }[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fanInput, setFanInput] = useState('');
+  const [variants, setVariants] = useState<string[]>([]);
+  const [isThinking, setIsThinking] = useState(false);
 
-  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  // ---------- ДИАЛОГ: состояние ----------
+  const [chatLog, setChatLog] = useState<Msg[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatThinking, setChatThinking] = useState(false);
+  const [chatVariants, setChatVariants] = useState<string[]>([]);
 
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
-    });
+  useEffect(() => {
+    try {
+      const savedPersona = localStorage.getItem('synx_persona');
+      if (savedPersona) setPersona({ ...DEFAULT_PERSONA, ...JSON.parse(savedPersona) });
+      const savedFans = localStorage.getItem('synx_fans');
+      if (savedFans) setFans(JSON.parse(savedFans));
+    } catch (e) {}
+    setReady(true);
+  }, []);
+
+  useEffect(() => { if (ready) localStorage.setItem('synx_persona', JSON.stringify(persona)); }, [persona, ready]);
+  useEffect(() => { if (ready) localStorage.setItem('synx_fans', JSON.stringify(fans)); }, [fans, ready]);
+
+  const activeFan = fans.find((f) => f.id === activeFanId) || null;
+  const updateFan = (id: string, patch: Partial<Fan>) => setFans((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+
+  const createFan = () => {
+    const name = newFanName.trim() || 'Новый фанат';
+    const fan: Fan = { id: Date.now().toString(), name, handle: '', notes: '', stage: 1, history: [] };
+    setFans([fan, ...fans]);
+    setNewFanName('');
+    setActiveFanId(fan.id);
   };
 
-  const handleReferenceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (references.length + files.length > 5) {
-      alert("Максимум 5 референсов!");
-      return;
-    }
-
-    const newRefs = await Promise.all(files.map(async (file) => {
-      const base64 = await fileToBase64(file);
-      return {
-        id: Math.random().toString(36).substring(7),
-        file,
-        preview: URL.createObjectURL(file),
-        base64
-      };
-    }));
-
-    setReferences([...references, ...newRefs]);
+  const deleteFan = (id: string) => {
+    if (!confirm('Удалить фаната?')) return;
+    setFans((prev) => prev.filter((f) => f.id !== id));
+    if (activeFanId === id) setActiveFanId(null);
   };
 
-  const removeReference = (id: string) => {
-    setReferences(references.filter(r => r.id !== id));
+  const pushToHistory = (role: 'fan' | 'model', text: string) => {
+    if (!activeFan || !text.trim()) return;
+    updateFan(activeFan.id, { history: [...activeFan.history, { role, text: text.trim(), time: Date.now() }] });
+    setFanInput('');
   };
 
-  const handleGenerate = async () => {
-    const finalPrompt = studioMode === 'templates'
-      ? `${modelDescription}, ${selectedTemplate.basePrompt}`
-      : imagePrompt;
+  const generateReply = async () => {
+    if (!activeFan || !fanInput.trim()) return;
 
-    if (!finalPrompt.trim()) {
-      alert("Напишите описание!");
-      return;
-    }
+    const newHistory = [...activeFan.history, { role: 'fan' as const, text: fanInput.trim(), time: Date.now() }];
+    updateFan(activeFan.id, { history: newHistory });
+    setFanInput('');
 
-    setIsGenerating(true);
-    setGeneratedResults([]);
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    setIsThinking(true);
+    setVariants([]);
 
     try {
-      const requestData = {
-        prompt: finalPrompt,
-        engine: selectedEngine,
-        count: generateCount,
-        references: references.map(r => r.base64),
-        autoTranslate: true
-      };
-
-      const response = await fetch('/api/generate-image', {
+      const res = await fetch('/api/chatter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData)
+        body: JSON.stringify({ persona, fan: { ...activeFan, history: newHistory }, fanMessage: fanInput.trim() }),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) throw new Error(data.error || 'Ошибка генерации');
-
-      const results = Array.isArray(data.urls)
-        ? data.urls.map((url: string) => ({ url, type: data.type || 'image' }))
-        : [{ url: data.url, type: data.type }];
-
-      setGeneratedResults(results);
-
-    } catch (error: any) {
-      console.error(error);
-      alert("Ошибка: " + error.message);
+      const data = await res.json();
+      if (data.replies) setVariants(data.replies);
+      else setVariants(['❌ ' + (data.error || 'Ошибка')]);
+    } catch (e: any) {
+      setVariants(['❌ Ошибка сервера']);
     } finally {
-      setIsGenerating(false);
+      setIsThinking(false);
     }
   };
 
-  const handleDownload = async (url: string) => {
+  const useVariant = async (text: string, copy: boolean) => {
+    if (!activeFan) return;
+    if (copy) { try { await navigator.clipboard.writeText(text); } catch (e) {} }
+    updateFan(activeFan.id, { history: [...activeFan.history, { role: 'model', text, time: Date.now() }] });
+    setVariants([]);
+  };
+
+  const sendChat = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg: Msg = { role: 'fan', text: chatInput.trim(), time: Date.now() };
+    const newLog = [...chatLog, userMsg];
+    setChatLog(newLog);
+    setChatInput('');
+    setChatThinking(true);
+    setChatVariants([]);
+
     try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `ai_model_${Date.now()}.${url.includes('.mp4') ? 'mp4' : 'jpg'}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(blobUrl);
-      document.body.removeChild(a);
-    } catch (err) {
-      alert("Зажмите фото пальцем, чтобы сохранить его в галерею.");
+      const res = await fetch('/api/chatter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          persona,
+          fan: { id: 'dialog', name: 'Собеседник', handle: '', notes: 'свободный диалог, без продаж', stage: 1, history: newLog },
+          fanMessage: userMsg.text,
+        }),
+      });
+      const data = await res.json();
+      if (data.replies) setChatVariants(data.replies);
+      else setChatVariants(['❌ ' + (data.error || 'Ошибка')]);
+    } catch (e) {
+      setChatVariants(['❌ Ошибка сервера']);
+    } finally {
+      setChatThinking(false);
     }
   };
+
+  const card: React.CSSProperties = { background: '#111', borderRadius: '16px', padding: '15px', border: '1px solid #222' };
+  const label: React.CSSProperties = { fontSize: '11px', color: '#888', textTransform: 'uppercase', marginBottom: '6px', display: 'block' };
+  const inputStyle: React.CSSProperties = { width: '100%', backgroundColor: '#000', border: '1px solid #333', borderRadius: '10px', color: '#fff', padding: '12px', fontSize: '13px', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' };
 
   return (
-    <main className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
-
-      {fullscreenImage && (
-        <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col justify-center items-center">
-          <div className="absolute top-4 right-4 flex gap-4 z-[101]">
-            <button onClick={() => handleDownload(fullscreenImage)} className="bg-white/20 p-3 rounded-full text-xl backdrop-blur-md">⬇️</button>
-            <button onClick={() => setFullscreenImage(null)} className="bg-white/20 p-3 rounded-full text-xl backdrop-blur-md">❌</button>
-          </div>
-          <img src={fullscreenImage} alt="Full" className="w-full h-auto max-h-screen object-contain" />
+    <main className="flex flex-col min-h-screen bg-[#0A0A0A] text-white font-sans overflow-x-hidden">
+      <div className="max-w-md mx-auto w-full p-4 flex flex-col min-h-screen pb-10">
+        
+        <div className="flex justify-between items-center mb-5 mt-2 px-1">
+          <h2 className="text-[28px] font-black tracking-tight">Viral Brain <span className="text-[20px]">🧠</span></h2>
         </div>
-      )}
 
-      <div className="flex-1 overflow-y-auto pb-32 pt-safe px-4">
+        {/* ПЕРЕКЛЮЧАТЕЛИ РЕЖИМОВ */}
+        <div style={{ display: 'flex', backgroundColor: '#111', borderRadius: '12px', padding: '4px', marginBottom: '20px' }}>
+          {[ { id: 'chatter', label: '💬 Чаттер' }, { id: 'content', label: '📈 План' }, { id: 'chat', label: '🤖 Диалог' } ].map((m) => (
+            <button key={m.id} onClick={() => setBrainMode(m.id)} style={{ flex: 1, padding: '10px 5px', borderRadius: '8px', border: 'none', backgroundColor: brainMode === m.id ? '#222' : 'transparent', color: brainMode === m.id ? (m.id === 'chat' ? neonGreen : '#fff') : '#666', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
 
-        {activeTab === 'studio' && (
-          <div className="max-w-md mx-auto pt-8 space-y-6">
-
-            <div className="flex justify-between items-center">
-              <h2 className="text-[28px] font-black tracking-tight">Студия</h2>
-              <span className="text-[10px] bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1.5 rounded-md uppercase font-black tracking-widest">
-                Без цензуры 🔞
-              </span>
-            </div>
-
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 -mx-4 px-4">
-              <button onClick={() => setSelectedEngine('seedream')} className={`px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all border whitespace-nowrap flex items-center gap-1.5 shrink-0 ${selectedEngine === 'seedream' ? 'bg-[#D4FF00] text-black border-[#D4FF00]' : 'bg-[#161618] text-white/70 border-white/5'}`}>🔥 Seedream</button>
-              <button onClick={() => setSelectedEngine('nanobanana')} className={`px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all border whitespace-nowrap flex items-center gap-1.5 shrink-0 ${selectedEngine === 'nanobanana' ? 'bg-[#D4FF00] text-black border-[#D4FF00]' : 'bg-[#161618] text-white/70 border-white/5'}`}>🍌 Nano</button>
-              <button onClick={() => setSelectedEngine('flux')} className={`px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all border whitespace-nowrap flex items-center gap-1.5 shrink-0 ${selectedEngine === 'flux' ? 'bg-[#D4FF00] text-black border-[#D4FF00]' : 'bg-[#161618] text-white/70 border-white/5'}`}>⚡️ Flux</button>
-              <button onClick={() => setSelectedEngine('seedance')} className={`px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all border whitespace-nowrap flex items-center gap-1.5 shrink-0 ${selectedEngine === 'seedance' ? 'bg-[#D4FF00] text-black border-[#D4FF00]' : 'bg-[#161618] text-white/70 border-white/5'}`}>🎬 Seedance</button>
-            </div>
-
-            <div className="bg-[#161618] p-1.5 rounded-[16px] flex gap-1 border border-white/5">
-              <button onClick={() => setStudioMode('templates')} className={`flex-1 py-2.5 rounded-xl text-[13px] font-bold transition-colors ${studioMode === 'templates' ? 'bg-[#2A2B2E] text-white shadow-sm' : 'text-white/50'}`}>Готовые стили</button>
-              <button onClick={() => setStudioMode('freestyle')} className={`flex-1 py-2.5 rounded-xl text-[13px] font-bold transition-colors ${studioMode === 'freestyle' ? 'bg-[#2A2B2E] text-white shadow-sm' : 'text-white/50'}`}>Свой промпт</button>
-            </div>
-
-            <div className="bg-[#161618] border border-white/5 rounded-2xl p-4">
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <div className="text-[13px] font-bold text-white mb-0.5">Референсы (до 5 шт)</div>
-                  <div className="text-[10px] text-white/50">Загрузите лицо, позу, одежду или локацию</div>
-                </div>
-                <button onClick={() => fileInputRef.current?.click()} className="bg-[#D4FF00]/10 text-[#D4FF00] px-3 py-1.5 rounded-lg text-xs font-bold border border-[#D4FF00]/20">
-                  + Добавить
+        {/* ================= ЧАТТЕР ================= */}
+        {brainMode === 'chatter' && (
+          <div style={{ animation: 'fadeIn 0.3s' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '15px' }}>
+              <button onClick={() => { setShowPersona(!showPersona); setActiveFanId(null); }} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: showPersona ? `1px solid ${neonGreen}` : '1px solid #333', backgroundColor: showPersona ? '#1a1a1a' : '#111', color: showPersona ? neonGreen : '#aaa', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>
+                ⚙️ Персона: {persona.name}
+              </button>
+              {activeFan && !showPersona && (
+                <button onClick={() => { setActiveFanId(null); setVariants([]); }} style={{ padding: '12px 15px', borderRadius: '10px', border: '1px solid #333', backgroundColor: '#111', color: '#fff', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  ← Все фанаты
                 </button>
-                <input type="file" multiple accept="image/*" className="hidden" ref={fileInputRef} onChange={handleReferenceUpload} />
-              </div>
-
-              {references.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                  {references.map(ref => (
-                    <div key={ref.id} className="relative shrink-0 w-16 h-16 rounded-xl border border-white/10 overflow-hidden group">
-                      <img src={ref.preview} alt="ref" className="w-full h-full object-cover" />
-                      <button onClick={() => removeReference(ref.id)} className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full text-white text-[10px] flex items-center justify-center backdrop-blur-sm">✕</button>
-                    </div>
-                  ))}
-                </div>
               )}
             </div>
 
-            <div className="bg-[#161618] border border-white/5 rounded-2xl p-4 flex justify-between items-center">
-              <div className="text-[13px] font-bold text-white">Количество генераций</div>
-              <div className="flex gap-1 bg-black/50 p-1 rounded-lg">
-                <button onClick={() => setGenerateCount(1)} className={`px-3 py-1 rounded-md text-xs font-bold transition-colors ${generateCount === 1 ? 'bg-white text-black' : 'text-white/50'}`}>1 фото</button>
-                <button onClick={() => setGenerateCount(4)} className={`px-3 py-1 rounded-md text-xs font-bold transition-colors ${generateCount === 4 ? 'bg-[#D4FF00] text-black' : 'text-white/50'}`}>Серия (4)</button>
-              </div>
-            </div>
+            {showPersona && (
+              <div style={{ ...card, border: `1px solid ${neonGreen}40` }}>
+                <label style={label}>Имя</label>
+                <input value={persona.name} onChange={(e) => setPersona({ ...persona, name: e.target.value })} style={{ ...inputStyle, marginBottom: '14px' }} />
 
-            {studioMode === 'templates' ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  {TEMPLATES.map(tpl => (
-                    <div key={tpl.id} onClick={() => setSelectedTemplate(tpl)} className={`cursor-pointer p-4 rounded-2xl border transition-all ${selectedTemplate.id === tpl.id ? 'bg-[#D4FF00]/10 border-[#D4FF00]' : 'bg-[#1A1A1D] border-white/5'}`}>
-                      <div className="text-3xl mb-2">{tpl.icon}</div>
-                      <div className={`text-[13px] font-bold ${selectedTemplate.id === tpl.id ? 'text-[#D4FF00]' : 'text-white'}`}>{tpl.title}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="bg-[#161618] border border-white/5 rounded-2xl p-4">
-                  <div className="text-[11px] font-bold text-white/50 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <span className="text-lg">🇷🇺</span> Пишите на русском
-                  </div>
-                  <textarea value={modelDescription} onChange={(e) => setModelDescription(e.target.value)} placeholder="Пример: девушка блондинка, зеленые глаза, стройная, в красном платье..." className="w-full bg-transparent border-none p-0 h-20 focus:outline-none text-white resize-none text-[15px] placeholder-white/30" />
-                </div>
-              </div>
-            ) : (
-              <div className="bg-[#161618] border border-white/5 rounded-2xl p-4">
-                <div className="text-[11px] font-bold text-white/50 uppercase tracking-widest mb-3 flex items-center gap-2">
-                  <span className="text-lg">🇷🇺</span> Пишите на русском
-                </div>
-                <textarea value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)} placeholder="Подробное описание сцены..." className="w-full bg-transparent border-none p-0 h-32 focus:outline-none text-white resize-none text-[15px] placeholder-white/30" />
+                <label style={label}>Язык ответов</label>
+                <select value={persona.languageMode} onChange={(e) => setPersona({ ...persona, languageMode: e.target.value })} style={{ ...inputStyle, marginBottom: '14px', WebkitAppearance: 'none' }}>
+                  <option value="ru">Только Русский</option>
+                  <option value="en">Только Английский (разговорный)</option>
+                  <option value="ru_en">Русский + Английский в скобках [ ]</option>
+                </select>
+
+                <label style={label}>Факты из жизни</label>
+                <textarea value={persona.lifeFacts} onChange={(e) => setPersona({ ...persona, lifeFacts: e.target.value })} style={{ ...inputStyle, height: '70px', marginBottom: '14px', resize: 'none' }} />
+
+                <label style={label}>Примеры твоего общения (ВАЖНО!)</label>
+                <p style={{ fontSize: '11px', color: '#666', margin: '0 0 8px 0', lineHeight: '1.4' }}>Напиши тут 2-3 примера, как ты обычно отвечаешь. ИИ скопирует твой стиль, регистр и сленг.</p>
+                <textarea value={persona.examples} onChange={(e) => setPersona({ ...persona, examples: e.target.value })} style={{ ...inputStyle, height: '110px', marginBottom: '16px', resize: 'none' }} />
+
+                <button onClick={() => setShowPersona(false)} style={{ width: '100%', padding: '16px', borderRadius: '12px', border: 'none', backgroundColor: neonGreen, color: '#000', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  Сохранить персону
+                </button>
               </div>
             )}
 
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="w-full bg-[#D4FF00] disabled:bg-[#161618] disabled:text-white/30 text-black font-black py-4 rounded-2xl text-[15px] shadow-lg shadow-[#D4FF00]/10"
-            >
-              {isGenerating ? `Генерируем ${generateCount > 1 ? 'серию...' : '...'}` : 'Сгенерировать шедевр'}
-            </button>
-
-            <div className="w-full min-h-[300px] mb-8">
-              {isGenerating ? (
-                <div className="flex flex-col items-center justify-center gap-4 py-20 bg-[#161618] rounded-[24px] border border-white/5">
-                  <div className="w-10 h-10 border-4 border-white/10 border-t-[#D4FF00] rounded-full animate-spin"></div>
-                  <div className="text-white/50 text-sm font-medium">Нейросеть рисует...</div>
+            {!showPersona && !activeFan && (
+              <div>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+                  <input value={newFanName} onChange={(e) => setNewFanName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createFan()} placeholder="Имя фаната..." style={{ ...inputStyle, flex: 1 }} />
+                  <button onClick={createFan} style={{ padding: '0 18px', borderRadius: '10px', border: `1px solid ${neonGreen}`, backgroundColor: '#1a1a1a', color: neonGreen, fontWeight: 'bold', cursor: 'pointer' }}>+ Создать</button>
                 </div>
-              ) : generatedResults.length > 0 ? (
-                <div className={`grid gap-3 ${generatedResults.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                  {generatedResults.map((res, idx) => (
-                    <div key={idx} className="relative group rounded-[24px] overflow-hidden border border-white/5 bg-[#161618]">
-                      {res.type === 'image' ? (
-                        <img
-                          src={res.url}
-                          alt="Result"
-                          className="w-full h-auto object-cover cursor-pointer"
-                          onClick={() => setFullscreenImage(res.url)}
-                        />
-                      ) : (
-                        <video src={res.url} controls autoPlay loop muted playsInline className="w-full h-auto" />
-                      )}
+                {fans.length === 0 && (
+                   <div className="text-center text-white/30 text-sm mt-10">Нет фанатов. Создайте первого!</div>
+                )}
+                {fans.map((fan) => {
+                  const last = fan.history[fan.history.length - 1];
+                  return (
+                    <div key={fan.id} style={{ ...card, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div onClick={() => setActiveFanId(fan.id)} style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                          <span style={{ fontWeight: 'bold', fontSize: '15px' }}>{fan.name}</span>
+                          <span style={{ fontSize: '10px', color: neonGreen, border: `1px solid ${neonGreen}50`, borderRadius: '20px', padding: '3px 8px' }}>Этап {fan.stage}</span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '13px', color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{last ? (last.role === 'fan' ? 'Ф: ' + last.text : 'Я: ' + last.text) : 'нет сообщений'}</p>
+                      </div>
+                      <button onClick={() => deleteFan(fan.id)} style={{ background: 'none', border: 'none', color: '#444', fontSize: '18px', cursor: 'pointer', padding: '10px' }}>✕</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!showPersona && activeFan && (
+              <div>
+                <div style={{ ...card, marginBottom: '12px' }}>
+                  <input value={activeFan.name} onChange={(e) => updateFan(activeFan.id, { name: e.target.value })} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', fontWeight: 'bold', width: '100%', outline: 'none', padding: 0, marginBottom: '12px' }} />
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <button key={s} onClick={() => updateFan(activeFan.id, { stage: s })} style={{ flex: 1, padding: '8px 2px', borderRadius: '8px', border: activeFan.stage === s ? `1px solid ${neonGreen}` : '1px solid #2a2a2a', backgroundColor: activeFan.stage === s ? '#1e2410' : '#0d0d0d', color: activeFan.stage === s ? neonGreen : '#666', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', lineHeight: '1.2' }}>{s}<br/><span style={{ fontSize: '9px', fontWeight: 'normal' }}>{STAGES[s].split(' ')[0]}</span></button>
+                    ))}
+                  </div>
+                  <button onClick={() => setShowFanNotes(!showFanNotes)} style={{ background: 'none', border: 'none', color: '#777', fontSize: '12px', marginTop: '14px', cursor: 'pointer', padding: 0 }}>{showFanNotes ? '− Скрыть заметки' : '+ Что я о нём знаю'}</button>
+                  {showFanNotes && <textarea value={activeFan.notes} onChange={(e) => updateFan(activeFan.id, { notes: e.target.value })} placeholder="Заметки о фанате (работа, хобби, сколько платит)..." style={{ ...inputStyle, height: '80px', marginTop: '10px', resize: 'none' }} />}
+                </div>
+
+                <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {activeFan.history.map((msg, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'fan' ? 'flex-start' : 'flex-end' }}>
+                      <div style={{ maxWidth: '85%', padding: '12px 16px', borderRadius: '18px', backgroundColor: msg.role === 'fan' ? '#1a1a1a' : '#1e2410', border: msg.role === 'fan' ? '1px solid #222' : `1px solid ${neonGreen}40`, color: msg.role === 'fan' ? '#ddd' : '#fff', fontSize: '14px', lineHeight: '1.4' }}>
+                        {msg.text}
+                      </div>
                     </div>
                   ))}
+                  {isThinking && <div style={{ alignSelf: 'flex-end', color: neonGreen, fontSize: '13px', padding: '5px 15px' }}>печатает...</div>}
                 </div>
-              ) : (
-                <div className="bg-[#161618] rounded-[24px] border border-white/5 text-center px-4 py-20 flex flex-col items-center">
-                  <span className="text-4xl mb-3 opacity-50">✨</span>
-                  <p className="text-[13px] font-bold tracking-wide text-white/30 uppercase">Студия готова</p>
+
+                {variants.length > 0 && (
+                  <div style={{ marginBottom: '15px' }}>
+                    <p style={{ fontSize: '11px', color: '#888', textTransform: 'uppercase', marginBottom: '8px' }}>Варианты ответа</p>
+                    {variants.map((v, i) => (
+                      <div key={i} style={{ ...card, border: `1px solid ${neonGreen}40`, marginBottom: '8px' }}>
+                        <p style={{ margin: '0 0 12px 0', fontSize: '14px', lineHeight: '1.5' }}>{v}</p>
+                        <button onClick={() => useVariant(v, true)} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', backgroundColor: neonGreen, color: '#000', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>Копировать и сохранить</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <textarea value={fanInput} onChange={(e) => setFanInput(e.target.value)} placeholder="Вставь сообщение (своё или фаната)..." style={{ ...inputStyle, height: '80px', marginBottom: '12px', resize: 'none' }} />
+
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+                  <button onClick={() => pushToHistory('fan', fanInput)} disabled={!fanInput.trim()} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid #333', backgroundColor: '#1a1a1a', color: '#aaa', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>+ Он написал</button>
+                  <button onClick={() => pushToHistory('model', fanInput)} disabled={!fanInput.trim()} style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid #333', backgroundColor: '#1e2410', color: neonGreen, fontSize: '13px', cursor: 'pointer', fontWeight: 'bold' }}>+ Я написала</button>
                 </div>
-              )}
-            </div>
+
+                <button onClick={generateReply} disabled={isThinking || !fanInput.trim()} style={{ width: '100%', padding: '18px', borderRadius: '12px', border: 'none', backgroundColor: isThinking || !fanInput.trim() ? '#333' : neonGreen, color: isThinking || !fanInput.trim() ? '#666' : '#000', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  {isThinking ? 'Генерация...' : 'Сгенерировать ответ ИИ'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {activeTab === 'explore' && (<div className="pt-8 text-center">Главная в разработке</div>)}
-        {activeTab === 'brain' && (<div className="pt-8"><BrainTab /></div>)}
-      </div>
+        {/* ================= ПЛАН ================= */}
+        {brainMode === 'content' && (
+          <div style={{ animation: 'fadeIn 0.3s' }}>
+            <ContentPlan />
+          </div>
+        )}
 
-      <div className="fixed bottom-0 w-full bg-[#0A0A0A]/90 backdrop-blur-2xl border-t border-white/5 pb-8 pt-4 z-50">
-        <div className="flex justify-around items-center max-w-md mx-auto px-8">
-          <button onClick={() => setActiveTab('explore')} className={`flex flex-col items-center transition-all ${activeTab === 'explore' ? 'text-white scale-110' : 'text-white/30 hover:text-white/50'}`}><span className="text-2xl">◫</span></button>
-          <button onClick={() => setActiveTab('studio')} className={`flex flex-col items-center transition-all ${activeTab === 'studio' ? 'scale-110' : 'hover:scale-105'}`}>
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-colors ${activeTab === 'studio' ? 'bg-[#D4FF00] text-black shadow-[#D4FF00]/20' : 'bg-[#161618] text-white border border-white/5'}`}>
-              <span className="text-3xl font-light mb-1">+</span>
+        {/* ================= ДИАЛОГ ================= */}
+        {brainMode === 'chat' && (
+          <div style={{ animation: 'fadeIn 0.3s' }}>
+            <div style={{ maxHeight: '450px', overflowY: 'auto', marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {chatLog.length === 0 && (
+                <div style={{ ...card, textAlign: 'center', padding: '60px 15px' }}>
+                  <span style={{ fontSize: '36px' }}>🤖</span>
+                  <p style={{ fontSize: '13px', color: '#777', margin: '12px 0 0 0', lineHeight: '1.5' }}>Свободный диалог с {persona.name}.<br/>Персона берётся из Чаттера.</p>
+                </div>
+              )}
+              {chatLog.map((msg, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'fan' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ maxWidth: '85%', padding: '12px 16px', borderRadius: '18px', backgroundColor: msg.role === 'fan' ? '#1a1a1a' : '#1e2410', border: msg.role === 'fan' ? '1px solid #222' : `1px solid ${neonGreen}40`, color: '#fff', fontSize: '14px', lineHeight: '1.4' }}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {chatThinking && <div style={{ color: neonGreen, fontSize: '13px', padding: '5px 10px' }}>печатает...</div>}
             </div>
-          </button>
-          <button onClick={() => setActiveTab('brain')} className={`flex flex-col items-center transition-all ${activeTab === 'brain' ? 'text-white scale-110' : 'text-white/30 hover:text-white/50'}`}><span className="text-2xl">🧠</span></button>
-        </div>
+
+            {chatVariants.length > 0 && (
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ fontSize: '11px', color: '#888', textTransform: 'uppercase', marginBottom: '8px' }}>Выбери ответ</p>
+                {chatVariants.map((v, i) => (
+                  <div key={i} onClick={() => { setChatLog([...chatLog, { role: 'model', text: v, time: Date.now() }]); setChatVariants([]); }} style={{ ...card, border: `1px solid ${neonGreen}40`, marginBottom: '8px', cursor: 'pointer', padding: '14px' }}>
+                    <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.5' }}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Напиши что-нибудь..." style={{ ...inputStyle, height: '80px', marginBottom: '12px', resize: 'none' }} />
+            <button onClick={sendChat} disabled={chatThinking || !chatInput.trim()} style={{ width: '100%', padding: '18px', borderRadius: '12px', border: 'none', backgroundColor: chatThinking || !chatInput.trim() ? '#333' : neonGreen, color: chatThinking || !chatInput.trim() ? '#666' : '#000', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer' }}>
+              {chatThinking ? 'Думает...' : 'Отправить'}
+            </button>
+            {chatLog.length > 0 && (
+              <button onClick={() => { setChatLog([]); setChatVariants([]); }} style={{ width: '100%', background: 'none', border: 'none', color: '#555', fontSize: '12px', padding: '14px', marginTop: '10px', cursor: 'pointer' }}>
+                Очистить диалог
+              </button>
+            )}
+          </div>
+        )}
+
       </div>
     </main>
   );
