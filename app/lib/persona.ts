@@ -13,7 +13,12 @@ export const LANGUAGE_OPTIONS: { id: LanguageMode; label: string }[] = [
 ];
 export type StoryMode = 'have' | 'create' | 'none';
 
+// Два направления: продюсирую себя (блог, личный бренд) или ИИ-модель
+export type Kind = 'self' | 'model';
+
 export type Persona = {
+  id: string;          // у каждого проекта свой id — по нему хранятся план, фанаты и чат
+  kind: Kind;
   name: string;
   age: string;
   archetype: Arche;
@@ -25,6 +30,51 @@ export type Persona = {
   appearance: string;  // внешность на английском, для промптов фото
   languageMode: LanguageMode;
   refs: string[];      // фото-референсы (до 3), сжатые base64
+  // --- для режима «Продюсирую себя» ---
+  niche: string;       // о чём блог
+  audience: string;    // кто читает, их боли
+  offer: string;       // что продаёшь (курс, услуги…) или пусто
+  tone: string;        // тон: дружеский, экспертный…
+  platforms: string[]; // где ведёшь
+};
+
+export const KINDS: Record<Kind, { emoji: string; title: string; sub: string }> = {
+  self:  { emoji: '🙋‍♀️', title: 'Продюсирую себя', sub: 'Блог, канал, личный бренд' },
+  model: { emoji: '🤖', title: 'Продюсирую ИИ-модель', sub: 'Telegram, Fanvue, OnlyFans' },
+};
+
+export const SELF_PLATFORMS = ['Telegram', 'Threads', 'Instagram', 'YouTube', 'TikTok', 'VK'];
+export const MODEL_PLATFORMS = ['Telegram', 'Fanvue', 'OnlyFans', 'Threads', 'Instagram'];
+export const TONES = ['Дружеский', 'Экспертный, но простой', 'Дерзкий', 'Вдохновляющий', 'С юмором', 'Спокойный и честный'];
+export const OFFER_CHIPS = ['курс', 'консультации', 'услуги', 'свой продукт', 'реклама в канале', 'пока ничего не продаю'];
+
+/** Подписи, которые отличаются в двух режимах */
+export const KIND_TEXT: Record<Kind, {
+  chatterTab: string; person: string; personPlural: string; replyLabels: string[];
+  stages: Record<number, { short: string; full: string }>;
+}> = {
+  model: {
+    chatterTab: '💬 Чаттер', person: 'фанат', personPlural: 'фанаты',
+    replyLabels: ['Тёплый', 'Игривый', 'Шаг вперёд'],
+    stages: {
+      1: { short: 'Знакомство', full: 'Знакомство: только познакомились, лёгкая болтовня' },
+      2: { short: 'Флирт',      full: 'Флирт: он нравится, можно дразнить и намекать' },
+      3: { short: 'Прогрев',    full: 'Прогрев: доверие есть, можно намекать на закрытый контент' },
+      4: { short: 'PPV',        full: 'Первое PPV: предлагаем первый платный контент, мягко' },
+      5: { short: 'Продажа',    full: 'Продажа: он уже покупал, можно предлагать прямее' },
+    },
+  },
+  self: {
+    chatterTab: '💬 Ответы', person: 'подписчик', personPlural: 'подписчики',
+    replyLabels: ['Тёплый', 'С пользой', 'Шаг к покупке'],
+    stages: {
+      1: { short: 'Новый',       full: 'Новый: только подписался или впервые написал' },
+      2: { short: 'Интерес',     full: 'Интерес: задаёт вопросы по теме' },
+      3: { short: 'Доверие',     full: 'Доверие: делится проблемой, ему нужна польза и внимание' },
+      4: { short: 'Предложение', full: 'Предложение: мягко предлагаем продукт или услугу' },
+      5: { short: 'Клиент',      full: 'Клиент: уже купил, сопровождаем, просим отзыв, предлагаем следующее' },
+    },
+  },
 };
 
 export const ARCHETYPES: Record<Arche, { name: string; emoji: string; tagline: string; voice: string }> = {
@@ -100,6 +150,8 @@ export const TEST: { q: string; options: { label: string; a: Arche }[] }[] = [
 export const STORY_CHIPS = ['переезд в новый город', 'учёба в универе', 'работа в баре', 'путешествия', 'своя студия', 'знакомства в сети'];
 
 export const EMPTY_PERSONA: Persona = {
+  id: '',
+  kind: 'model',
   name: '',
   age: '',
   archetype: 'siren',
@@ -111,10 +163,18 @@ export const EMPTY_PERSONA: Persona = {
   appearance: '',
   languageMode: 'ru',
   refs: [],
+  niche: '',
+  audience: '',
+  offer: '',
+  tone: '',
+  platforms: [],
 };
 
 // Готовая Мия — для тех, кто хочет сначала просто попробовать
 export const DEMO_PERSONA: Persona = {
+  ...EMPTY_PERSONA,
+  kind: 'model',
+  platforms: ['Telegram', 'Fanvue'],
   name: 'Мия',
   age: '22',
   archetype: 'siren',
@@ -169,13 +229,5 @@ export type Week = {
 export type Msg = { role: 'fan' | 'model'; text: string; time: number };
 export type Fan = { id: string; name: string; notes: string; stage: number; history: Msg[] };
 export type Reply = { text: string; translation: string };
-
-export const STAGES: Record<number, { short: string; full: string }> = {
-  1: { short: 'Знакомство', full: 'Знакомство: только познакомились, лёгкая болтовня' },
-  2: { short: 'Флирт',      full: 'Флирт: он нравится, можно дразнить и намекать' },
-  3: { short: 'Прогрев',    full: 'Прогрев: доверие есть, можно намекать на закрытый контент' },
-  4: { short: 'PPV',        full: 'Первое PPV: предлагаем первый платный контент, мягко' },
-  5: { short: 'Продажа',    full: 'Продажа: он уже покупал, можно предлагать прямее' },
-};
 
 export const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);

@@ -2,7 +2,21 @@
 // На этапе 2 эти функции переедут на базу данных — остальной код менять не придётся.
 import { useEffect, useRef, useState } from 'react';
 
-export const KEYS = {
+/** Список всех проектов (персонажей) */
+export const PROJECTS_KEY = 'vb_projects';
+
+/** Ключи данных одного проекта: у каждого свой план, фанаты, лайки и чат с помощником */
+export function projectKeys(id: string) {
+  return {
+    plan: `vb_plan_${id}`,
+    fans: `vb_fans_${id}`,
+    liked: `vb_liked_${id}`,
+    assistant: `vb_assistant_${id}`,
+  };
+}
+
+/** Ключи прошлой версии (один персонаж на всё приложение) — нужны только для переноса */
+export const LEGACY_KEYS = {
   persona: 'vb_persona',
   plan: 'vb_plan',
   fans: 'vb_fans',
@@ -34,14 +48,16 @@ export function removeStored(key: string) {
 /** Как useState, но значение само сохраняется и загружается. ready = данные уже загружены. */
 export function useStored<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
-  const [ready, setReady] = useState(false);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const initialRef = useRef(initial);
+  const ready = loadedKey === key;
 
   useEffect(() => {
     setValue(readStored(key, initialRef.current));
-    setReady(true);
+    setLoadedKey(key);
   }, [key]);
 
+  // сохраняем только после того, как загрузили данные именно этого ключа
   useEffect(() => {
     if (ready) writeStored(key, value);
   }, [key, value, ready]);

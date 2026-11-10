@@ -1,9 +1,9 @@
 'use client';
 // Части персонажа, которые используются и при первом входе, и в редакторе.
 import { useRef, useState } from 'react';
-import { ARCHETYPES, STORY_CHIPS, TEST, type Arche, type Persona, type StoryMode } from '../lib/persona';
+import { ARCHETYPES, OFFER_CHIPS, SELF_PLATFORMS, STORY_CHIPS, TEST, TONES, type Arche, type Persona, type StoryMode } from '../lib/persona';
 import { compressImage, errorText } from '../lib/client';
-import { Btn, card, hint, label, neon, neonBg, textarea } from './ui';
+import { Btn, Chip, card, hint, label, neon, neonBg, textarea } from './ui';
 
 // ---------- Тест на архетип ----------
 export function ArchetypeTest({ onDone, onCancel }: { onDone: (a: Arche) => void; onCancel?: () => void }) {
@@ -145,6 +145,71 @@ export function PhotoRefs({ refs, onChange }: { refs: string[]; onChange: (refs:
         </div>
       )}
       {err && <p style={{ color: '#ff6b6b', fontSize: 12, margin: '8px 0 0' }}>{err}</p>}
+    </div>
+  );
+}
+
+// ---------- Выбор нескольких вариантов (площадки) ----------
+export function MultiChips({ options, value, onChange }: { options: string[]; value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {options.map((o) => {
+        const on = value.includes(o);
+        return (
+          <Chip key={o} active={on} onClick={() => onChange(on ? value.filter((x) => x !== o) : [...value, o])}>
+            {on ? '✓ ' : ''}{o}
+          </Chip>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- «Продюсирую себя»: ниша, аудитория, продукт ----------
+export function SelfBrandFields({ p, set }: { p: Persona; set: (patch: Partial<Persona>) => void }) {
+  return (
+    <div>
+      <span style={label}>О чём твой блог</span>
+      <textarea value={p.niche} onChange={(e) => set({ niche: e.target.value })} rows={2} placeholder="например: учу создавать ИИ-моделей и зарабатывать на них" style={{ ...textarea, marginBottom: 14 }} />
+
+      <span style={label}>Кто тебя читает и что у них болит</span>
+      <textarea value={p.audience} onChange={(e) => set({ audience: e.target.value })} rows={3} placeholder="например: девушки 20–35, уже пробовали нейросети, не получается живая кожа и одно лицо в разных ракурсах" style={{ ...textarea, marginBottom: 14 }} />
+
+      <span style={label}>Что ты продаёшь</span>
+      <p style={hint}>Можно выбрать и дописать. План будет вести к этому.</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {OFFER_CHIPS.map((c) => (
+          <button key={c} onClick={() => set({ offer: c === 'пока ничего не продаю' ? '' : p.offer ? `${p.offer}, ${c}` : c })} style={{ padding: '6px 10px', borderRadius: 20, border: '1px solid #2a2a2a', backgroundColor: '#000', color: '#888', fontSize: 11, cursor: 'pointer' }}>
+            + {c}
+          </button>
+        ))}
+      </div>
+      <textarea value={p.offer} onChange={(e) => set({ offer: e.target.value })} rows={2} placeholder="например: курс AI Creators на ai-creators.ru" style={{ ...textarea, marginBottom: 14 }} />
+
+      <span style={label}>Где ведёшь</span>
+      <MultiChips options={SELF_PLATFORMS} value={p.platforms} onChange={(platforms) => set({ platforms })} />
+    </div>
+  );
+}
+
+// ---------- «Продюсирую себя»: голос ----------
+export function SelfVoiceFields({ p, set }: { p: Persona; set: (patch: Partial<Persona>) => void }) {
+  return (
+    <div>
+      <span style={label}>Тон</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+        {TONES.map((t) => <Chip key={t} active={p.tone === t} onClick={() => set({ tone: p.tone === t ? '' : t })}>{t}</Chip>)}
+      </div>
+
+      <span style={label}>Как ты пишешь (самое важное)</span>
+      <p style={hint}>Вставь 1–3 своих поста, которые зашли. ИИ скопирует твою манеру.</p>
+      <textarea value={p.examples} onChange={(e) => set({ examples: e.target.value })} rows={6} placeholder="Вставь сюда свои посты…" style={{ ...textarea, marginBottom: 14 }} />
+
+      <span style={label}>Немного о себе</span>
+      <textarea value={p.character} onChange={(e) => set({ character: e.target.value })} rows={2} placeholder="например: мама двоих детей, переехали в Таиланд, раньше работала дизайнером" style={{ ...textarea, marginBottom: 14 }} />
+
+      <span style={label}>Факты из жизни для живых постов</span>
+      <textarea value={p.lifeFacts} onChange={(e) => set({ lifeFacts: e.target.value })} rows={2} placeholder="город, дом, дети, питомцы, хобби, привычки" style={textarea} />
     </div>
   );
 }
