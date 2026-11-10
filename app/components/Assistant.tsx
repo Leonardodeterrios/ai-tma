@@ -3,28 +3,37 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Persona, PlanStore } from '../lib/persona';
 import { copyText, errorText, mondayOf, postJSON } from '../lib/client';
-import { KEYS, readStored, useStored } from '../lib/storage';
+import { projectKeys, readStored, useStored } from '../lib/storage';
 import { Btn, ErrorBox, card, neon, neonBg, textarea } from './ui';
 
 type AMsg = { role: 'user' | 'assistant'; text: string };
 
 const QUICK = [
   { label: '💡 Идея для поста', text: 'Придумай 3 идеи для поста на сегодня' },
-  { label: '💬 Как ответить фанату', text: 'Фанат написал: «…». Как ответить, чтобы продолжить разговор?' },
   { label: '✍️ Перепиши живее', text: 'Перепиши этот текст живее, голосом персонажа:\n' },
   { label: '📖 Сюжет недели', text: 'Предложи 3 варианта сюжета на следующую неделю' },
 ];
 
 /** Сюжет текущей недели из плана — чтобы помощник был в курсе */
-function currentStoryline() {
-  const plan = readStored<PlanStore>(KEYS.plan, { start: '', weeks: {} });
+function currentStoryline(planKey: string) {
+  const plan = readStored<PlanStore>(planKey, { start: '', weeks: {} });
   if (!plan.start) return '';
   const wi = Math.round((mondayOf(new Date()).getTime() - new Date(plan.start).getTime()) / (7 * 86_400_000));
   return plan.weeks[wi]?.storyline || '';
 }
 
 export default function Assistant({ persona }: { persona: Persona }) {
-  const [log, setLog] = useStored<AMsg[]>(KEYS.assistant, []);
+  const keys = projectKeys(persona.id);
+  const self = persona.kind === 'self';
+  const quick = [
+    ...QUICK.slice(0, 1),
+    self
+      ? { label: '💬 Как ответить подписчику', text: 'Подписчик написал: «…». Как ответить, чтобы он остался и захотел купить?' }
+      : { label: '💬 Как ответить фанату', text: 'Фанат написал: «…». Как ответить, чтобы продолжить разговор?' },
+    ...QUICK.slice(1),
+    ...(self ? [{ label: '💰 Пост-продажа', text: 'Напиши продающий пост для моего предложения, без давления' }] : []),
+  ];
+  const [log, setLog] = useStored<AMsg[]>(keys.assistant, []);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -39,7 +48,7 @@ export default function Assistant({ persona }: { persona: Persona }) {
     try {
       const data = await postJSON<{ reply: string }>('/api/assistant', {
         persona: { ...persona, refs: [] }, // фото помощнику не нужны
-        storyline: currentStoryline(),
+        storyline: currentStoryline(keys.plan),
         messages: messages.slice(-16),
       });
       setLog([...messages, { role: 'assistant', text: data.reply }]);
@@ -69,7 +78,7 @@ export default function Assistant({ persona }: { persona: Persona }) {
         <div style={{ ...card, textAlign: 'center', padding: '28px 15px', marginBottom: 14 }}>
           <div style={{ fontSize: 32 }}>🤖</div>
           <p style={{ fontSize: 14, color: '#aaa', margin: '10px 0 0', lineHeight: 1.5 }}>
-            Твой помощник. Знает {persona.name}, её характер и сюжет недели.<br />Спроси что угодно или нажми кнопку ниже.
+            Твой помощник. {self ? `Знает твой блог, аудиторию и сюжет недели.` : `Знает ${persona.name}, её характер и сюжет недели.`}<br />Спроси что угодно или нажми кнопку ниже.
           </p>
         </div>
       )}
@@ -98,7 +107,7 @@ export default function Assistant({ persona }: { persona: Persona }) {
       {error && <ErrorBox text={error} onRetry={retry} />}
 
       <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 6 }}>
-        {QUICK.map((q) => (
+        {quick.map((q) => (
           <button key={q.label} onClick={() => setText(q.text)} style={{ padding: '8px 12px', borderRadius: 20, border: '1px solid #2a2a2a', backgroundColor: '#0d0d0d', color: '#aaa', fontSize: 12, whiteSpace: 'nowrap', cursor: 'pointer' }}>
             {q.label}
           </button>

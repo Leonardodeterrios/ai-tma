@@ -1,16 +1,15 @@
 'use client';
-// Вкладка «Чаттер»: фанаты, переписка и 3 варианта ответа голосом персонажа.
+// Вкладка «Чаттер» / «Ответы»: собеседники, переписка и 3 варианта ответа голосом персонажа.
 import { useState } from 'react';
-import { STAGES, newId, type Fan, type Persona, type PlanStore, type Reply } from '../lib/persona';
+import { KIND_TEXT, newId, type Fan, type Persona, type PlanStore, type Reply } from '../lib/persona';
 import { copyText, errorText, mondayOf, postJSON } from '../lib/client';
-import { KEYS, readStored, useStored } from '../lib/storage';
+import { projectKeys, readStored, useStored } from '../lib/storage';
 import { Btn, ErrorBox, card, input, neon, neonBg, textarea } from './ui';
 
-const REPLY_LABELS = ['Тёплый', 'Игривый', 'Шаг вперёд'];
 
 /** Последние посты из плана — чтобы персонаж мог на них сослаться в личке */
-function recentPosts(): string[] {
-  const plan = readStored<PlanStore>(KEYS.plan, { start: '', weeks: {} });
+function recentPosts(planKey: string): string[] {
+  const plan = readStored<PlanStore>(planKey, { start: '', weeks: {} });
   if (!plan.start) return [];
   const now = new Date();
   const wi = Math.round((mondayOf(now).getTime() - new Date(plan.start).getTime()) / (7 * 86_400_000));
@@ -20,7 +19,9 @@ function recentPosts(): string[] {
 }
 
 export default function Chatter({ persona }: { persona: Persona }) {
-  const [fans, setFans] = useStored<Fan[]>(KEYS.fans, []);
+  const keys = projectKeys(persona.id);
+  const T = KIND_TEXT[persona.kind];
+  const [fans, setFans] = useStored<Fan[]>(keys.fans, []);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [showNotes, setShowNotes] = useState(false);
@@ -37,7 +38,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
   const open = (id: string | null) => { setActiveId(id); setReplies([]); setError(''); setMsg(''); setShowNotes(false); };
 
   const createFan = () => {
-    const f: Fan = { id: newId(), name: newName.trim() || 'Новый фанат', notes: '', stage: 1, history: [] };
+    const f: Fan = { id: newId(), name: newName.trim() || `Новый ${T.person}`, notes: '', stage: 1, history: [] };
     setFans([f, ...fans]);
     setNewName('');
     open(f.id);
@@ -64,7 +65,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
       const data = await postJSON<{ replies: Reply[] }>('/api/chatter', {
         persona: { ...persona, refs: [] },
         fan: { ...fan, history },
-        recentPosts: recentPosts(),
+        recentPosts: recentPosts(keys.plan),
       });
       setReplies(data.replies);
     } catch (e) {
@@ -85,12 +86,12 @@ export default function Chatter({ persona }: { persona: Persona }) {
     return (
       <div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createFan()} placeholder="Имя фаната…" style={{ ...input, flex: 1 }} />
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createFan()} placeholder={persona.kind === 'self' ? 'Имя или ник подписчика…' : 'Имя фаната…'} style={{ ...input, flex: 1 }} />
           <Btn kind="soft" onClick={createFan}>+ Добавить</Btn>
         </div>
         {fans.length === 0 && (
           <div style={{ ...card, textAlign: 'center', color: '#777', fontSize: 14, padding: '30px 15px', lineHeight: 1.5 }}>
-            Пока нет фанатов.<br />Добавь первого, вставь его сообщение, и {persona.name} предложит 3 ответа.
+            Пока пусто.<br />Добавь первого, вставь его сообщение, и {persona.name} предложит 3 ответа.
           </div>
         )}
         {fans.map((f) => {
@@ -100,7 +101,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
               <div onClick={() => open(f.id)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
                   <span style={{ fontWeight: 700, fontSize: 15 }}>{f.name}</span>
-                  <span style={{ fontSize: 10, color: neon, border: `1px solid ${neon}50`, borderRadius: 20, padding: '2px 8px' }}>{f.stage}. {STAGES[f.stage]?.short}</span>
+                  <span style={{ fontSize: 10, color: neon, border: `1px solid ${neon}50`, borderRadius: 20, padding: '2px 8px' }}>{f.stage}. {T.stages[f.stage]?.short}</span>
                 </div>
                 <p style={{ margin: 0, fontSize: 13, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {last ? `${last.role === 'fan' ? 'Он' : 'Я'}: ${last.text}` : 'нет сообщений'}
@@ -125,7 +126,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
   const canGenerate = !busy && (msg.trim().length > 0 || fan.history.length > 0);
   return (
     <div>
-      <button onClick={() => open(null)} style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, padding: '0 0 12px', cursor: 'pointer' }}>← Все фанаты</button>
+      <button onClick={() => open(null)} style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, padding: '0 0 12px', cursor: 'pointer' }}>← Все {T.personPlural}</button>
 
       <div style={{ ...card, marginBottom: 12 }}>
         <input value={fan.name} onChange={(e) => updateFan(fan.id, { name: e.target.value })} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 18, fontWeight: 700, width: '100%', outline: 'none', padding: 0, marginBottom: 12 }} />
@@ -134,7 +135,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
             const on = fan.stage === s;
             return (
               <button key={s} onClick={() => updateFan(fan.id, { stage: s })} style={{ flex: 1, padding: '7px 2px', borderRadius: 8, border: on ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: on ? neonBg : '#0d0d0d', color: on ? neon : '#666', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.25 }}>
-                {s}<br /><span style={{ fontSize: 9, fontWeight: 400 }}>{STAGES[s].short}</span>
+                {s}<br /><span style={{ fontSize: 9, fontWeight: 400 }}>{T.stages[s].short}</span>
               </button>
             );
           })}
@@ -162,7 +163,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
         <div style={{ marginBottom: 14 }}>
           {replies.map((r, i) => (
             <div key={i} style={{ ...card, border: `1px solid ${neon}40`, marginBottom: 8 }}>
-              <div style={{ fontSize: 10, color: '#777', textTransform: 'uppercase', marginBottom: 6 }}>{REPLY_LABELS[i] || 'Вариант'}</div>
+              <div style={{ fontSize: 10, color: '#777', textTransform: 'uppercase', marginBottom: 6 }}>{T.replyLabels[i] || 'Вариант'}</div>
               <p style={{ margin: '0 0 4px', fontSize: 15, lineHeight: 1.45 }}>{r.text}</p>
               {r.translation && <p style={{ margin: '0 0 8px', fontSize: 12, color: '#777', lineHeight: 1.4 }}>{r.translation}</p>}
               <Btn full small onClick={() => useReply(r)} style={{ marginTop: 6 }}>Копировать и сохранить</Btn>

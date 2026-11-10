@@ -4,18 +4,42 @@
 //  post    — переписать один пост или добавить новый
 import { askJSON, cleanImages, clip, errorResponse, HttpError, type ChatMessage } from '../../lib/server/openai';
 import { LIVE_TEXT_RULES, personaBlock, readPersona } from '../../lib/server/prompts';
-import { DAYS, GOALS } from '../../lib/persona';
+import { DAYS, GOALS, type Persona } from '../../lib/persona';
 
 export const maxDuration = 60;
 
-const FUNNEL = `ВОРОНКА НЕДЕЛИ (неделя — цепочка к продаже, а не набор случайных постов):
+// Воронка недели — своя для каждого режима
+const FUNNEL_MODEL = `ВОРОНКА НЕДЕЛИ (неделя — цепочка к продаже, а не набор случайных постов):
 - Пн–Вт: Доверие и Вовлечение — кто она, что у неё происходит, вопросы подписчикам.
 - Ср–Чт: Прогрев — интрига, намёки на закрытое, «вчера сняла кое-что».
 - Пт: мягкая Продажа — тизер закрытого контента.
 - Сб: Вовлечение — лёгкое, смешное, близкое.
 - Вс: Продажа или Доверие — итог недели, тёплый финал с намёком.`;
 
-const SAFETY = 'Соблазнительно и с намёком, но без графической откровенности: интрига продаёт лучше.';
+const funnelSelf = (offer: string) => `ВОРОНКА НЕДЕЛИ (неделя — цепочка, а не набор случайных постов):
+- Пн–Вт: Доверие и Вовлечение — личное, закулисье, мнение, вопрос аудитории.
+- Ср–Чт: Прогрев — польза, разбор боли аудитории, кейс, «как я это делаю», результат.
+- Пт: Продажа — ${offer ? `мягкое предложение: ${offer}` : 'призыв написать в личку, подписаться, переслать другу'}.
+- Сб: Вовлечение — лёгкое, смешное, опрос, жизнь.
+- Вс: Доверие или Продажа — итог недели, выводы, ${offer ? 'напоминание о предложении' : 'анонс следующей недели'}.`;
+
+const intro = (p: Persona) =>
+  p.kind === 'self'
+    ? 'Ты — сильный продюсер личного бренда. Пишешь посты для блога автора от его лица.'
+    : 'Ты — сильный SMM-редактор канала с вымышленным персонажем. Пишешь посты для канала персонажа.';
+
+const postRules = (p: Persona) =>
+  p.kind === 'self'
+    ? `ПРАВИЛА ПОСТА:
+- От первого лица, голосом автора. 20–90 слов. Без поучительного тона.
+- Время ЧЧ:ММ, реалистичное и не круглое (09:10, 13:20, 19:40).
+- Формат: Личное, Польза, Кейс, Закулисье, Мнение, Вопрос, Опрос, Продажа.
+- needsMedia = true, если к посту нужно фото или видео. Тогда imagePrompt — ПО-РУССКИ короткая идея, что снять: кадр, ракурс, что в руках, что на фоне (например «селфи у окна с ноутбуком, на экране дашборд, утренний свет»). Если медиа не нужно — imagePrompt пустой.`
+    : `ПРАВИЛА ПОСТА:
+- От первого лица, голосом персонажа. 15–60 слов. Строчные буквы, если так пишет персонаж.
+- Время ЧЧ:ММ, реалистичное и не круглое (09:00, 13:20, 17:40, 22:10).
+- needsMedia = true, если к посту нужно фото. Тогда imagePrompt: полностью на английском, сцена (локация, свет, одежда, поза, объектив), внешность персонажа, в конце "photorealistic, natural skin texture, candid". Если фото не нужно — imagePrompt пустой.
+- Соблазнительно и с намёком, но без графической откровенности: интрига продаёт лучше.`;
 
 // ---------- схемы ответов ----------
 const postSchema = {
@@ -24,12 +48,12 @@ const postSchema = {
   required: ['time', 'format', 'goal', 'text', 'hashtags', 'needsMedia', 'imagePrompt'],
   properties: {
     time: { type: 'string', description: 'время публикации ЧЧ:ММ' },
-    format: { type: 'string', description: 'Фото, Заметка, Закулисье, Вопрос, Шутка, Тизер, Сторис' },
+    format: { type: 'string', description: 'формат поста одним-двумя словами' },
     goal: { type: 'string', enum: GOALS },
     text: { type: 'string' },
     hashtags: { type: 'string', description: '0–3 хэштега через пробел или пустая строка' },
     needsMedia: { type: 'boolean' },
-    imagePrompt: { type: 'string', description: 'промпт фото на английском или пустая строка, если фото не нужно' },
+    imagePrompt: { type: 'string', description: 'что снять / промпт фото, или пустая строка, если медиа не нужно' },
   },
 };
 
@@ -39,7 +63,7 @@ const outlineSchema = {
   required: ['storyline', 'appearance', 'days'],
   properties: {
     storyline: { type: 'string', description: 'сюжет недели одной короткой строкой, строчными буквами' },
-    appearance: { type: 'string', description: 'внешность персонажа на английском, 1–2 предложения' },
+    appearance: { type: 'string', description: 'внешность на английском, 1–2 предложения, или пустая строка' },
     days: {
       type: 'array',
       items: {
@@ -91,11 +115,6 @@ function weekRules(scenario: string, bans: string) {
     .join('\n');
 }
 
-const POST_RULES = `ПРАВИЛА ПОСТА:
-- От первого лица, голосом персонажа. 15–60 слов. Строчные буквы, если так пишет персонаж.
-- Время ЧЧ:ММ, реалистичное и не круглое (09:00, 13:20, 17:40, 22:10).
-- needsMedia = true, если к посту нужно фото. Тогда imagePrompt: полностью на английском, сцена (локация, свет, одежда, поза, объектив), внешность персонажа, в конце "photorealistic, natural skin texture, candid". Если фото не нужно — imagePrompt пустой.
-- ${SAFETY}`;
 
 export async function POST(req: Request) {
   try {
@@ -108,9 +127,9 @@ export async function POST(req: Request) {
     const taste = tasteBlock(textList(body.liked, 5, 400), textList(body.disliked, 3, 400));
 
     const base = [
-      'Ты — сильный SMM-редактор канала с вымышленным персонажем. Пишешь посты для Telegram-канала персонажа.',
+      intro(persona),
       personaBlock(persona),
-      persona.appearance && `Внешность (для промптов фото): ${persona.appearance}`,
+      persona.kind === 'model' && persona.appearance && `Внешность (для промптов фото): ${persona.appearance}`,
       weekRules(scenario, bans),
       taste,
       LIVE_TEXT_RULES,
@@ -120,14 +139,14 @@ export async function POST(req: Request) {
 
     // ---------- 1. Сюжет недели ----------
     if (action === 'outline') {
-      const images = persona.appearance ? [] : cleanImages(body.references);
+      const images = persona.kind === 'self' || persona.appearance ? [] : cleanImages(body.references);
       const user: ChatMessage['content'] = [
         {
           type: 'text',
           text: `Придумай сюжет этой недели и задачу на каждый день (Пн–Вс, ровно 7).
-${FUNNEL}
+${persona.kind === 'self' ? funnelSelf(persona.offer) : FUNNEL_MODEL}
 ${storyline ? `Сюжет уже задан автором: «${storyline}». Оставь его.` : ''}
-appearance: ${images.length ? 'опиши внешность по приложенным фото' : persona.appearance ? 'повтори данную внешность' : 'придумай внешность под архетип и историю'}.`,
+${persona.kind === 'self' ? 'appearance: пустая строка.' : `appearance: ${images.length ? 'опиши внешность по приложенным фото' : persona.appearance ? 'повтори данную внешность' : 'придумай внешность под архетип и историю'}.`}`,
         },
         ...images.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
       ];
@@ -153,7 +172,7 @@ appearance: ${images.length ? 'опиши внешность по приложе
         name: 'day_posts',
         schema: daySchema,
         messages: [
-          { role: 'system', content: `${base}\n\n${POST_RULES}` },
+          { role: 'system', content: `${base}\n\n${postRules(persona)}` },
           {
             role: 'user',
             content: `Сюжет недели: ${storyline}
@@ -161,7 +180,7 @@ appearance: ${images.length ? 'опиши внешность по приложе
 ${week.join('\n')}
 
 Напиши посты на ${day}. Что происходит: ${beat}. Главная цель дня: ${goal}.
-Сделай 2–3 поста в разное время, с разными форматами. Хотя бы один пост с фото, хотя бы один без. Посты связаны с сюжетом, но не пересказывают его.`,
+Сделай 2–3 поста в разное время, с разными форматами. Хотя бы один пост с медиа, хотя бы один без. Посты связаны с сюжетом, но не пересказывают его.`,
           },
         ],
       });
@@ -181,7 +200,7 @@ ${week.join('\n')}
         name: 'one_post',
         schema: onePostSchema,
         messages: [
-          { role: 'system', content: `${base}\n\n${POST_RULES}` },
+          { role: 'system', content: `${base}\n\n${postRules(persona)}` },
           {
             role: 'user',
             content: `Сюжет недели: ${storyline}\nДень: ${day}. Что происходит: ${beat}.\n${

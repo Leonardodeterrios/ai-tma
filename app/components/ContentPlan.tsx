@@ -6,7 +6,7 @@ import {
   type DayPlan, type Goal, type Persona, type PlanStore, type Post, type Taste, type Week,
 } from '../lib/persona';
 import { addDays, copyText, errorText, mondayOf, postJSON } from '../lib/client';
-import { KEYS, useStored } from '../lib/storage';
+import { projectKeys, useStored } from '../lib/storage';
 import { Btn, Chip, ErrorBox, Spinner, card, hint, label, neon, textarea } from './ui';
 
 type Mode = 'feed' | 'scenario' | 'media';
@@ -39,8 +39,10 @@ const byTime = (a: Post, b: Post) => a.time.localeCompare(b.time);
 const postForCopy = (p: Post) => [p.text, p.hashtags].filter(Boolean).join('\n\n');
 
 export default function ContentPlan({ persona, onAppearance }: { persona: Persona; onAppearance: (a: string) => void }) {
-  const [plan, setPlan, planReady] = useStored<PlanStore>(KEYS.plan, { start: '', weeks: {} });
-  const [taste, setTaste] = useStored<Taste>(KEYS.liked, { liked: [], disliked: [] });
+  const keys = projectKeys(persona.id);
+  const self = persona.kind === 'self';
+  const [plan, setPlan, planReady] = useStored<PlanStore>(keys.plan, { start: '', weeks: {} });
+  const [taste, setTaste] = useStored<Taste>(keys.liked, { liked: [], disliked: [] });
 
   const today = useMemo(() => new Date(), []);
   const start = plan.start ? new Date(plan.start) : mondayOf(today);
@@ -272,19 +274,19 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       <div>
         {header}
         {items.length === 0 ? (
-          <div style={{ ...card, textAlign: 'center', color: '#777', fontSize: 13, padding: 30 }}>Пока нет постов с фото. Сначала собери план в «Ленте».</div>
+          <div style={{ ...card, textAlign: 'center', color: '#777', fontSize: 13, padding: 30 }}>{self ? 'Пока нет постов, где нужно фото или видео.' : 'Пока нет постов с фото.'} Сначала собери план в «Ленте».</div>
         ) : (
           <>
-            <p style={{ ...hint, fontSize: 13 }}>Все промпты для фото этой недели в одном месте. Сгенерируй их пачкой в Студии.</p>
+            <p style={{ ...hint, fontSize: 13 }}>{self ? 'Что снять на этой неделе. Удобно отснять всё за один раз.' : 'Все промпты для фото этой недели в одном месте. Сгенерируй их пачкой в Студии.'}</p>
             {items.map(({ p, d }) => (
               <div key={p.id} style={{ ...card, marginBottom: 10 }}>
                 <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{d} · {p.time} · {p.text.slice(0, 50)}{p.text.length > 50 ? '…' : ''}</div>
                 <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.45, marginBottom: 10 }}>{p.imagePrompt}</div>
-                <Btn kind="ghost" small onClick={() => doCopy(p.imagePrompt, 'm' + p.id)}>{copied === 'm' + p.id ? '✓ Скопировано' : 'Копировать промпт'}</Btn>
+                <Btn kind="ghost" small onClick={() => doCopy(p.imagePrompt, 'm' + p.id)}>{copied === 'm' + p.id ? '✓ Скопировано' : self ? 'Копировать' : 'Копировать промпт'}</Btn>
               </div>
             ))}
             <Btn full onClick={() => doCopy(items.map(({ p, d }) => `${d} ${p.time}\n${p.imagePrompt}`).join('\n\n'), 'allm')}>
-              {copied === 'allm' ? '✓ Все промпты скопированы' : 'Скопировать все промпты'}
+              {copied === 'allm' ? '✓ Скопировано' : self ? 'Скопировать весь список съёмки' : 'Скопировать все промпты'}
             </Btn>
           </>
         )}
@@ -342,6 +344,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         <PostCard
           key={p.id}
           p={p}
+          self={self}
           busy={busyPost === p.id}
           copied={copied}
           onEdit={(text) => patchPost(p.id, { text })}
@@ -368,9 +371,9 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
 
 // ---------- Карточка поста ----------
 function PostCard({
-  p, busy, copied, onEdit, onRate, onRewrite, onDelete, onCopy,
+  p, self, busy, copied, onEdit, onRate, onRewrite, onDelete, onCopy,
 }: {
-  p: Post; busy: boolean; copied: string | null;
+  p: Post; self: boolean; busy: boolean; copied: string | null;
   onEdit: (text: string) => void; onRate: (v: 1 | -1) => void; onRewrite: () => void; onDelete: () => void;
   onCopy: (text: string, id: string) => void;
 }) {
@@ -398,17 +401,17 @@ function PostCard({
       {p.needsMedia && p.imagePrompt && (
         <div style={{ marginBottom: 8 }}>
           <button onClick={() => setShowPrompt(!showPrompt)} style={{ background: 'none', border: 'none', color: '#d9945b', fontSize: 12, padding: 0, cursor: 'pointer' }}>
-            📷 Нужно фото {showPrompt ? '▴' : '▾ промпт'}
+            📷 {self ? 'Нужно фото/видео' : 'Нужно фото'} {showPrompt ? '▴' : self ? '▾ что снять' : '▾ промпт'}
           </button>
           {showPrompt && (
             <div style={{ backgroundColor: '#000', border: '1px solid #222', borderRadius: 10, padding: 10, marginTop: 6 }}>
               <div style={{ fontSize: 11, color: '#999', lineHeight: 1.45, marginBottom: 8 }}>{p.imagePrompt}</div>
-              <Chip onClick={() => onCopy(p.imagePrompt, 'p' + p.id)}>{copied === 'p' + p.id ? '✓ Скопировано' : 'Копировать промпт'}</Chip>
+              <Chip onClick={() => onCopy(p.imagePrompt, 'p' + p.id)}>{copied === 'p' + p.id ? '✓ Скопировано' : self ? 'Копировать' : 'Копировать промпт'}</Chip>
             </div>
           )}
         </div>
       )}
-      {!p.needsMedia && <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>Без фото</div>}
+      {!p.needsMedia && <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>{self ? 'Только текст' : 'Без фото'}</div>}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderTop: '1px solid #1c1c1c', paddingTop: 8 }}>
         <button style={icon(p.rating === 1)} onClick={() => onRate(1)} title="Нравится">👍</button>
