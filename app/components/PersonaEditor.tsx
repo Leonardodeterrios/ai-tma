@@ -2,7 +2,7 @@
 // Настройки проекта: открываются по кнопке с именем в шапке.
 import { useState } from 'react';
 import { ARCHETYPES, ARCHE_IDS, KINDS, LANGUAGE_OPTIONS, MODEL_PLATFORMS, type Persona } from '../lib/persona';
-import { ArchetypeTest, MultiChips, PhotoRefs, SelfBrandFields, SelfVoiceFields, StoryFields } from './PersonaParts';
+import { ArchetypeTest, MultiChips, PhotoRefs, SelfBrandFields, SelfGoalFields, SelfPlatformFields, SelfVoiceFields, StoryFields } from './PersonaParts';
 import { Btn, Chip, card, hint, input, label, textarea } from './ui';
 
 export default function PersonaEditor({
@@ -39,6 +39,12 @@ export default function PersonaEditor({
             <span style={label}>Имя или название блога</span>
             <input value={p.name} onChange={(e) => set({ name: e.target.value })} style={{ ...input, marginBottom: 14 }} />
             <SelfBrandFields p={p} set={set} />
+          </div>
+          <div style={block}>
+            <SelfGoalFields p={p} set={set} />
+          </div>
+          <div style={block}>
+            <SelfPlatformFields p={p} set={set} />
           </div>
           <div style={block}>
             <SelfVoiceFields p={p} set={set} />

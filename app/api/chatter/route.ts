@@ -1,6 +1,6 @@
 // Чаттер: 3 варианта ответа фанату голосом персонажа.
 import { askJSON, clip, errorResponse, HttpError } from '../../lib/server/openai';
-import { personaBlock, readPersona } from '../../lib/server/prompts';
+import { NO_INVENT_RULES, personaBlock, readPersona } from '../../lib/server/prompts';
 import type { LanguageMode } from '../../lib/persona';
 
 export const maxDuration = 60;
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     const sys = `${who}
 
 ${personaBlock(persona)}
-
+${self ? `\n${NO_INVENT_RULES}\n` : ''}
 ${(self ? STAGE_GUIDE_SELF : STAGE_GUIDE)[stage]}
 Что ты о нём знаешь: ${clip(fan.notes, 1000) || 'пока ничего'}
 ${recentPosts.length ? `\nТвои последние посты (можно на них сослаться, если к месту):\n${recentPosts.join('\n')}` : ''}

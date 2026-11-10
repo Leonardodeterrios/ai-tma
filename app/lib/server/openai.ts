@@ -48,7 +48,8 @@ async function callOpenAI(body: Record<string, unknown>) {
 
   const msg = data.choices?.[0]?.message;
   if (msg?.refusal) throw new HttpError('ИИ отказался писать это. Попробуй смягчить формулировки', 422);
-  return msg?.content || '';
+  // длинные тире выдают текст от ИИ — меняем на обычный дефис
+  return (msg?.content || '').replace(/[ \u00a0]*—[ \u00a0]*/g, ' - ');
 }
 
 /**

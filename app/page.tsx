@@ -8,9 +8,10 @@ import PersonaEditor from './components/PersonaEditor';
 import Assistant from './components/Assistant';
 import ContentPlan from './components/ContentPlan';
 import Chatter from './components/Chatter';
+import Growth from './components/Growth';
 import { Spinner, card, neon } from './components/ui';
 
-type Tab = 'chat' | 'plan' | 'chatter';
+type Tab = 'chat' | 'plan' | 'chatter' | 'growth';
 type View = { screen: 'home' } | { screen: 'new'; kind: Kind } | { screen: 'project'; id: string; editing?: boolean };
 
 /** Переносим данные из прошлых версий приложения, чтобы ничего не потерялось */
@@ -115,7 +116,7 @@ function App() {
           persona={p}
           onHome={() => setView({ screen: 'home' })}
           onEdit={() => setView({ screen: 'project', id: p.id, editing: true })}
-          onAppearance={(appearance) => setProjects((list) => list.map((x) => (x.id === p.id ? { ...x, appearance } : x)))}
+          onPatch={(patch) => setProjects((list) => list.map((x) => (x.id === p.id ? { ...x, ...patch } : x)))}
         />
       );
     }
@@ -168,12 +169,13 @@ function App() {
   );
 }
 
-function Project({ persona, onHome, onEdit, onAppearance }: { persona: Persona; onHome: () => void; onEdit: () => void; onAppearance: (a: string) => void }) {
+function Project({ persona, onHome, onEdit, onPatch }: { persona: Persona; onHome: () => void; onEdit: () => void; onPatch: (patch: Partial<Persona>) => void }) {
   const [tab, setTab] = useState<Tab>('plan');
   const tabs: { id: Tab; label: string }[] = [
     { id: 'chat', label: '🤖 Диалог' },
     { id: 'plan', label: '📈 План' },
     { id: 'chatter', label: KIND_TEXT[persona.kind].chatterTab },
+    { id: 'growth', label: '📊 Рост' },
   ];
 
   return (
@@ -188,15 +190,16 @@ function Project({ persona, onHome, onEdit, onAppearance }: { persona: Persona; 
 
       <div style={{ display: 'flex', backgroundColor: '#111', borderRadius: 12, padding: 4, marginBottom: 18 }}>
         {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: '10px 4px', borderRadius: 8, border: 'none', backgroundColor: tab === t.id ? '#222' : 'transparent', color: tab === t.id ? '#fff' : '#666', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: '10px 2px', borderRadius: 8, border: 'none', backgroundColor: tab === t.id ? '#222' : 'transparent', color: tab === t.id ? '#fff' : '#666', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             {t.label}
           </button>
         ))}
       </div>
 
       {tab === 'chat' && <Assistant persona={persona} />}
-      {tab === 'plan' && <ContentPlan persona={persona} onAppearance={onAppearance} />}
+      {tab === 'plan' && <ContentPlan persona={persona} onAppearance={(appearance) => onPatch({ appearance })} />}
       {tab === 'chatter' && <Chatter persona={persona} />}
+      {tab === 'growth' && <Growth persona={persona} onPatch={onPatch} />}
     </>
   );
 }

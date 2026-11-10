@@ -1,6 +1,6 @@
 // Помощник (вкладка «Диалог»): обычный разговор с ИИ-продюсером, который знает персонажа.
 import { askText, clip, errorResponse, HttpError, type ChatMessage } from '../../lib/server/openai';
-import { LIVE_TEXT_RULES, personaBlock, readPersona } from '../../lib/server/prompts';
+import { LIVE_TEXT_RULES, NO_INVENT_RULES, personaBlock, readPersona } from '../../lib/server/prompts';
 
 export const maxDuration = 60;
 
@@ -33,7 +33,7 @@ ${storyline ? `\nСюжет этой недели: ${storyline}` : ''}
 - Если просят текст для поста или ответа — пиши голосом ${persona.kind === 'self' ? 'автора' : 'персонажа'} и по правилам ниже.
 - Предлагай 2–3 варианта, когда это уместно.${persona.kind === 'model' ? '\n- Соблазнительно и с намёком можно, графическую откровенность не пиши.' : ''}
 
-${LIVE_TEXT_RULES}`;
+${persona.kind === 'self' ? `${NO_INVENT_RULES}\n\n` : ''}${LIVE_TEXT_RULES}`;
 
     const reply = await askText({ messages: [{ role: 'system', content: sys }, ...messages] });
     return Response.json({ reply });

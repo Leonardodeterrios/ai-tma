@@ -1,9 +1,9 @@
 'use client';
 // Части персонажа, которые используются и при первом входе, и в редакторе.
 import { useRef, useState } from 'react';
-import { ARCHETYPES, OFFER_CHIPS, SELF_PLATFORMS, STORY_CHIPS, TEST, TONES, type Arche, type Persona, type StoryMode } from '../lib/persona';
-import { compressImage, errorText } from '../lib/client';
-import { Btn, Chip, card, hint, label, neon, neonBg, textarea } from './ui';
+import { ARCHETYPES, GOAL_CHIPS, OFFER_CHIPS, SALES_LEVELS, SELF_PLATFORMS, STORY_CHIPS, TEST, TONES, type Arche, type Persona, type StoryMode } from '../lib/persona';
+import { compressImage, errorText, postJSON } from '../lib/client';
+import { Btn, Chip, card, hint, input, label, neon, neonBg, textarea } from './ui';
 
 // ---------- Тест на архетип ----------
 export function ArchetypeTest({ onDone, onCancel }: { onDone: (a: Arche) => void; onCancel?: () => void }) {
@@ -165,35 +165,143 @@ export function MultiChips({ options, value, onChange }: { options: string[]; va
   );
 }
 
-// ---------- «Продюсирую себя»: ниша, аудитория, продукт ----------
-export function SelfBrandFields({ p, set }: { p: Persona; set: (patch: Partial<Persona>) => void }) {
+// ---------- «Продюсирую себя» ----------
+type SetP = (patch: Partial<Persona>) => void;
+type Scan = { niche: string; audience: string; offer: string; proof: string; about: string };
+
+const smallChip = { padding: '6px 10px', borderRadius: 20, border: '1px solid #2a2a2a', backgroundColor: '#000', color: '#888', fontSize: 11, cursor: 'pointer' } as const;
+
+/** Шаг 1: кто ты, сайт, инстаграм, ниша, аудитория */
+export function SelfBrandFields({ p, set }: { p: Persona; set: SetP }) {
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState('');
+
+  const scan = async () => {
+    setScanning(true);
+    setScanMsg('');
+    try {
+      const r = await postJSON<Scan>('/api/brand-scan', { url: p.site });
+      // заполняем только пустые поля, чтобы не стереть то, что уже написано
+      const patch: Partial<Persona> = {};
+      if (!p.niche && r.niche) patch.niche = r.niche;
+      if (!p.audience && r.audience) patch.audience = r.audience;
+      if (!p.offer && r.offer) patch.offer = r.offer;
+      if (r.proof) patch.proof = p.proof ? `${p.proof}\n${r.proof}` : r.proof;
+      if (!p.character && r.about) patch.character = r.about;
+      set(patch);
+      setScanMsg(Object.keys(patch).length ? '✓ Изучила сайт и заполнила, что нашла. Проверь и поправь.' : 'Сайт открыла, но полезного текста почти нет. Заполни руками.');
+    } catch (e) {
+      setScanMsg(errorText(e));
+    } finally {
+      setScanning(false);
+    }
+  };
+
   return (
     <div>
+      <span style={label}>Сайт (если есть)</span>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+        <input value={p.site} onChange={(e) => set({ site: e.target.value.trim() })} inputMode="url" placeholder="ai-creators.ru" style={{ ...input, flex: 1 }} />
+        <Btn kind="soft" small disabled={!p.site || scanning} onClick={scan}>{scanning ? 'Читаю…' : 'Изучить'}</Btn>
+      </div>
+      <p style={{ ...hint, color: scanMsg.startsWith('✓') ? neon : scanMsg ? '#ff8b8b' : '#666', marginBottom: 14 }}>
+        {scanMsg || 'ИИ прочитает сайт и сам заполнит продукт, аудиторию и цифры.'}
+      </p>
+
+      <span style={label}>Instagram (если есть)</span>
+      <input value={p.instagram} onChange={(e) => set({ instagram: e.target.value.trim() })} placeholder="instagram.com/твой_ник" style={{ ...input, marginBottom: 6 }} />
+      <p style={{ ...hint, marginBottom: 14 }}>Instagram закрыт для ботов, поэтому лучше скопируй 2–3 лучших подписи в шаге «Голос».</p>
+
       <span style={label}>О чём твой блог</span>
       <textarea value={p.niche} onChange={(e) => set({ niche: e.target.value })} rows={2} placeholder="например: учу создавать ИИ-моделей и зарабатывать на них" style={{ ...textarea, marginBottom: 14 }} />
 
       <span style={label}>Кто тебя читает и что у них болит</span>
-      <textarea value={p.audience} onChange={(e) => set({ audience: e.target.value })} rows={3} placeholder="например: девушки 20–35, уже пробовали нейросети, не получается живая кожа и одно лицо в разных ракурсах" style={{ ...textarea, marginBottom: 14 }} />
-
-      <span style={label}>Что ты продаёшь</span>
-      <p style={hint}>Можно выбрать и дописать. План будет вести к этому.</p>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-        {OFFER_CHIPS.map((c) => (
-          <button key={c} onClick={() => set({ offer: c === 'пока ничего не продаю' ? '' : p.offer ? `${p.offer}, ${c}` : c })} style={{ padding: '6px 10px', borderRadius: 20, border: '1px solid #2a2a2a', backgroundColor: '#000', color: '#888', fontSize: 11, cursor: 'pointer' }}>
-            + {c}
-          </button>
-        ))}
-      </div>
-      <textarea value={p.offer} onChange={(e) => set({ offer: e.target.value })} rows={2} placeholder="например: курс AI Creators на ai-creators.ru" style={{ ...textarea, marginBottom: 14 }} />
-
-      <span style={label}>Где ведёшь</span>
-      <MultiChips options={SELF_PLATFORMS} value={p.platforms} onChange={(platforms) => set({ platforms })} />
+      <textarea value={p.audience} onChange={(e) => set({ audience: e.target.value })} rows={3} placeholder="например: девушки 20–35, уже пробовали нейросети, но получается пластиковая кожа и разные лица" style={textarea} />
     </div>
   );
 }
 
-// ---------- «Продюсирую себя»: голос ----------
-export function SelfVoiceFields({ p, set }: { p: Persona; set: (patch: Partial<Persona>) => void }) {
+/** Шаг 2: цель, видение, продукт, продаваемость, цифры */
+export function SelfGoalFields({ p, set }: { p: Persona; set: SetP }) {
+  const hasOffer = p.offer.trim().length > 0;
+  return (
+    <div>
+      <span style={label}>Главная цель блога</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+        {GOAL_CHIPS.map((g) => <Chip key={g} active={p.goal === g} onClick={() => set({ goal: p.goal === g ? '' : g })}>{g}</Chip>)}
+      </div>
+
+      <span style={label}>Каким ты видишь свой блог</span>
+      <p style={hint}>Своими словами: какое ощущение должно оставаться у читателя, на кого хочешь быть похожа, чего точно не хочешь.</p>
+      <textarea value={p.vision} onChange={(e) => set({ vision: e.target.value })} rows={3} placeholder="например: как подруга-практик, без инфоцыганства и «успешного успеха», много визуала и конкретики" style={{ ...textarea, marginBottom: 14 }} />
+
+      <span style={label}>Что продаёшь</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {OFFER_CHIPS.map((c) => (
+          <button key={c} onClick={() => set({ offer: c === 'пока ничего не продаю' ? '' : p.offer ? `${p.offer}, ${c}` : c })} style={smallChip}>+ {c}</button>
+        ))}
+      </div>
+      <textarea value={p.offer} onChange={(e) => set({ offer: e.target.value })} rows={2} placeholder="например: курс AI Creators, 3 тарифа, от 9 900 ₽" style={{ ...textarea, marginBottom: 14 }} />
+
+      {hasOffer && (
+        <>
+          <span style={label}>Насколько продаём</span>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            {[1, 2, 3].map((lvl) => {
+              const on = p.salesLevel === lvl;
+              return (
+                <button key={lvl} onClick={() => set({ salesLevel: lvl })} style={{ flex: 1, padding: '10px 6px', borderRadius: 12, cursor: 'pointer', textAlign: 'center', border: on ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: on ? neonBg : '#0d0d0d' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: on ? neon : '#ddd' }}>{SALES_LEVELS[lvl].title}</div>
+                  <div style={{ fontSize: 10, color: '#777', marginTop: 3, lineHeight: 1.3 }}>{SALES_LEVELS[lvl].sub}</div>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      <span style={label}>Цифры, кейсы, результаты</span>
+      <p style={hint}>Именно это делает посты живыми. ИИ не будет выдумывать факты, он возьмёт их отсюда.</p>
+      <textarea value={p.proof} onChange={(e) => set({ proof: e.target.value })} rows={4} placeholder={'например: мои ИИ-модели оплатили семье переезд и год аренды дома в Таиланде\nученица Аня за месяц вышла на 80 000 ₽'} style={textarea} />
+    </div>
+  );
+}
+
+/** Шаг 3: где ведёшь и что развиваем */
+export function SelfPlatformFields({ p, set }: { p: Persona; set: SetP }) {
+  const several = p.platforms.length > 1;
+  return (
+    <div>
+      <span style={label}>Где ведёшь или хочешь вести</span>
+      <MultiChips
+        options={SELF_PLATFORMS}
+        value={p.platforms}
+        onChange={(platforms) => set({
+          platforms,
+          // одна площадка — фокус на ней; стало несколько — по умолчанию «всё вместе»
+          focus: platforms.length <= 1 ? platforms[0] || 'all' : p.platforms.length <= 1 || !platforms.includes(p.focus) ? 'all' : p.focus,
+        })}
+      />
+      {several && (
+        <>
+          <span style={{ ...label, marginTop: 16 }}>Что развиваем</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button onClick={() => set({ focus: 'all' })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, cursor: 'pointer', border: p.focus === 'all' ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: p.focus === 'all' ? neonBg : '#0d0d0d' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: p.focus === 'all' ? neon : '#ddd' }}>Всё вместе, как воронку</div>
+              <div style={{ fontSize: 11, color: '#777', marginTop: 3, lineHeight: 1.4 }}>Каждый день посты для каждой площадки. Threads и Instagram дают охват, Telegram прогревает, дальше продукт.</div>
+            </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {p.platforms.map((x) => <Chip key={x} active={p.focus === x} onClick={() => set({ focus: x })}>Только {x}</Chip>)}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Шаг 4: голос */
+export function SelfVoiceFields({ p, set }: { p: Persona; set: SetP }) {
   return (
     <div>
       <span style={label}>Тон</span>
@@ -202,7 +310,7 @@ export function SelfVoiceFields({ p, set }: { p: Persona; set: (patch: Partial<P
       </div>
 
       <span style={label}>Как ты пишешь (самое важное)</span>
-      <p style={hint}>Вставь 1–3 своих поста, которые зашли. ИИ скопирует твою манеру.</p>
+      <p style={hint}>Вставь 2–3 своих поста или подписи из Instagram, которые зашли. ИИ скопирует твою манеру.</p>
       <textarea value={p.examples} onChange={(e) => set({ examples: e.target.value })} rows={6} placeholder="Вставь сюда свои посты…" style={{ ...textarea, marginBottom: 14 }} />
 
       <span style={label}>Немного о себе</span>

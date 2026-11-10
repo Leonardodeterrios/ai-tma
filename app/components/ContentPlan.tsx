@@ -2,7 +2,7 @@
 // Вкладка «План»: календарь недели, посты по дням, сценарий и медиа.
 import { useEffect, useMemo, useState } from 'react';
 import {
-  DAYS, GOALS, GOAL_COLORS, newId,
+  DAYS, GOALS, GOAL_COLORS, PLATFORM_COLORS, newId,
   type DayPlan, type Goal, type Persona, type PlanStore, type Post, type Taste, type Week,
 } from '../lib/persona';
 import { addDays, copyText, errorText, mondayOf, postJSON } from '../lib/client';
@@ -31,12 +31,21 @@ function toPost(r: RawPost): Post {
     hashtags: r.hashtags || '',
     needsMedia,
     imagePrompt: needsMedia ? r.imagePrompt || '' : '',
+    platform: r.platform || '',
+    hook: r.hook || '',
+    sound: r.sound || '',
     rating: 0,
   };
 }
 
 const byTime = (a: Post, b: Post) => a.time.localeCompare(b.time);
-const postForCopy = (p: Post) => [p.text, p.hashtags].filter(Boolean).join('\n\n');
+const postForCopy = (p: Post) => [p.hook && `Хук: ${p.hook}`, p.text, p.hashtags].filter(Boolean).join('\n\n');
+const PLATFORM_ORDER = ['Threads', 'Instagram', 'TikTok', 'YouTube', 'VK', 'Telegram'];
+// посты дня: по времени, а в связке — по воронке (охват → Telegram)
+const sortPosts = (a: Post, b: Post) =>
+  a.platform && b.platform && a.platform !== b.platform
+    ? PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform)
+    : byTime(a, b);
 
 export default function ContentPlan({ persona, onAppearance }: { persona: Persona; onAppearance: (a: string) => void }) {
   const keys = projectKeys(persona.id);
@@ -54,6 +63,12 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
   const [gen, setGen] = useState<Gen>(null);
   const [error, setError] = useState('');
   const [busyPost, setBusyPost] = useState<string | null>(null); // id поста или 'add' / 'day'
+  // «Опиши своими словами»
+  const [adding, setAdding] = useState(false);
+  const [idea, setIdea] = useState('');
+  const [ideaPlatform, setIdeaPlatform] = useState('');
+  const [editMode, setEditMode] = useState<'light' | 'strong'>('light');
+  const myPlatforms = persona.kind === 'self' ? (persona.focus !== 'all' && persona.platforms.includes(persona.focus) ? [persona.focus] : persona.platforms) : [];
   const [copied, setCopied] = useState<string | null>(null);
 
   // первый запуск: запоминаем начало календаря и открываем текущую неделю и сегодняшний день
@@ -68,6 +83,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
   const week: Week = plan.weeks[wi] || emptyWeek();
   const weekMonday = addDays(start, wi * 7);
   const day: DayPlan | undefined = week.days[dayIdx];
+  const built = Boolean(week.storyline); // план недели собран ИИ (а не только свои посты)
   const isGenerating = gen?.wi === wi;
   const apiPersona = { ...persona, refs: [] };
 
@@ -99,7 +115,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         weekBeats: ctx.wk.days.map((x, i) => `${DAYS[i]}: ${x.beat}`),
         ...tasteBody(),
       });
-      patchDay(w, d, (x) => ({ ...x, failed: false, posts: data.posts.map(toPost).sort(byTime) }));
+      patchDay(w, d, (x) => ({ ...x, failed: false, posts: [...x.posts.filter((p) => p.own), ...data.posts.map(toPost)].sort(sortPosts) }));
     } catch {
       patchDay(w, d, (x) => ({ ...x, failed: true }));
     }
@@ -126,7 +142,8 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       const wk: Week = {
         ...base,
         storyline: outline.storyline,
-        days: DAYS.map((_, i) => ({ beat: outline.days[i]?.beat || '', goal: asGoal(outline.days[i]?.goal), posts: [] })),
+        // свои посты («своими словами») при пересборке сохраняем
+        days: DAYS.map((_, i) => ({ beat: outline.days[i]?.beat || '', goal: asGoal(outline.days[i]?.goal), posts: (base.days[i]?.posts || []).filter((p) => p.own) })),
       };
       patchWeek(w, () => wk);
       setGen({ wi: w, phase: 'days', done: 0 });
@@ -148,8 +165,8 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
     setBusyPost(null);
   };
 
-  const rewritePost = async (post?: Post) => {
-    if (!day) return;
+  const rewritePost = async (post?: Post, own?: { idea: string; platform: string; editMode: 'light' | 'strong' }) => {
+    const dp0: DayPlan = day || { beat: '', goal: 'Доверие', posts: [] };
     setBusyPost(post ? post.id : 'add');
     setError('');
     try {
@@ -160,15 +177,21 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         scenario: week.scenario,
         bans: week.bans,
         day: DAYS[dayIdx],
-        beat: day.beat,
+        beat: dp0.beat,
         current: post?.text || '',
-        others: day.posts.filter((p) => p.id !== post?.id).map((p) => p.text),
+        platform: post?.platform || own?.platform || '',
+        idea: own?.idea || '',
+        editMode: own?.editMode || 'strong',
+        others: dp0.posts.filter((p) => p.id !== post?.id).map((p) => p.text),
         ...tasteBody(),
       });
-      const fresh = toPost(data.post);
+      const fresh: Post = { ...toPost(data.post), own: Boolean(own) || post?.own };
+      if (own) { setAdding(false); setIdea(''); }
+      // если плана на неделю ещё нет — создаём пустые дни, чтобы было куда положить пост
+      if (!week.days.length) patchWeek(wi, (wk) => ({ ...wk, days: DAYS.map(() => ({ beat: '', goal: 'Доверие' as Goal, posts: [] })) }));
       patchDay(wi, dayIdx, (dp) => ({
         ...dp,
-        posts: (post ? dp.posts.map((p) => (p.id === post.id ? { ...fresh, time: post.time } : p)) : [...dp.posts, fresh]).sort(byTime),
+        posts: (post ? dp.posts.map((p) => (p.id === post.id ? { ...fresh, time: post.time, platform: post.platform || fresh.platform } : p)) : [...dp.posts, fresh]).sort(sortPosts),
       }));
     } catch (e) {
       setError(errorText(e));
@@ -258,9 +281,9 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         <div style={{ textAlign: 'right', fontSize: 11, color: '#555', margin: '4px 0 16px' }}>{week.bans.length}/3000</div>
 
         <Btn full disabled={Boolean(gen)} onClick={buildWeek}>
-          {week.days.length ? 'Учесть в постах недели' : 'Собрать план недели'}
+          {built ? 'Учесть в постах недели' : 'Собрать план недели'}
         </Btn>
-        {week.days.length > 0 && (
+        {built && (
           <p style={{ ...hint, textAlign: 'center', marginTop: 10 }}>Посты недели напишутся заново. Те, что ты лайкнула, ИИ запомнил как пример стиля.</p>
         )}
       </div>
@@ -280,7 +303,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
             <p style={{ ...hint, fontSize: 13 }}>{self ? 'Что снять на этой неделе. Удобно отснять всё за один раз.' : 'Все промпты для фото этой недели в одном месте. Сгенерируй их пачкой в Студии.'}</p>
             {items.map(({ p, d }) => (
               <div key={p.id} style={{ ...card, marginBottom: 10 }}>
-                <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{d} · {p.time} · {p.text.slice(0, 50)}{p.text.length > 50 ? '…' : ''}</div>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{d} · {p.time}{p.platform ? ` · ${p.platform}` : ''} · {p.text.slice(0, 50)}{p.text.length > 50 ? '…' : ''}</div>
                 <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.45, marginBottom: 10 }}>{p.imagePrompt}</div>
                 <Btn kind="ghost" small onClick={() => doCopy(p.imagePrompt, 'm' + p.id)}>{copied === 'm' + p.id ? '✓ Скопировано' : self ? 'Копировать' : 'Копировать промпт'}</Btn>
               </div>
@@ -300,7 +323,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       {header}
       {dayStrip}
 
-      {error && <ErrorBox text={error} onRetry={week.days.length ? undefined : buildWeek} />}
+      {error && <ErrorBox text={error} onRetry={built ? undefined : buildWeek} />}
 
       {isGenerating && gen?.phase === 'outline' && <Spinner text="Придумываем сюжет недели…" />}
       {isGenerating && gen?.phase === 'days' && (
@@ -312,7 +335,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         </div>
       )}
 
-      {!week.days.length && !isGenerating && (
+      {!built && !isGenerating && (
         <div style={{ ...card, textAlign: 'center', padding: '30px 18px' }}>
           <div style={{ fontSize: 30, marginBottom: 8 }}>🗓</div>
           <p style={{ fontSize: 14, color: '#aaa', margin: '0 0 18px', lineHeight: 1.5 }}>
@@ -355,11 +378,42 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         />
       ))}
 
+      {!isGenerating && (
+        <div style={{ ...card, marginBottom: 10, border: adding ? `1px solid ${neon}40` : '1px solid #222' }}>
+          {!adding ? (
+            <button onClick={() => setAdding(true)} style={{ width: '100%', background: 'none', border: 'none', color: '#ddd', fontSize: 14, cursor: 'pointer', textAlign: 'left', padding: 0 }}>
+              ✍️ <b>Опиши своими словами</b>
+              <div style={{ fontSize: 12, color: '#777', marginTop: 4 }}>Расскажи как есть, а ИИ сделает из этого пост в твоём стиле</div>
+            </button>
+          ) : (
+            <>
+              <span style={label}>Своими словами</span>
+              <textarea value={idea} onChange={(e) => setIdea(e.target.value)} rows={5} placeholder="например: как я начинала, первая модель выглядела как кукла, я 3 недели не могла понять почему, пока не…" style={{ ...textarea, marginBottom: 10 }} />
+              {myPlatforms.length > 1 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                  {myPlatforms.map((x) => <Chip key={x} active={ideaPlatform === x} onClick={() => setIdeaPlatform(ideaPlatform === x ? '' : x)}>{x}</Chip>)}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                <Chip active={editMode === 'light'} onClick={() => setEditMode('light')}>Только причесать</Chip>
+                <Chip active={editMode === 'strong'} onClick={() => setEditMode('strong')}>Сделать сильнее под площадку</Chip>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Btn kind="ghost" small onClick={() => setAdding(false)}>Отмена</Btn>
+                <Btn small style={{ flex: 1 }} disabled={!idea.trim() || Boolean(busyPost)} onClick={() => rewritePost(undefined, { idea: idea.trim(), platform: ideaPlatform || myPlatforms[0] || '', editMode })}>
+                  {busyPost === 'add' ? 'Пишем…' : `Сделать пост на ${DAYS[dayIdx]}`}
+                </Btn>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {day && !isGenerating && !day.failed && (
         <>
-          <button onClick={() => rewritePost()} disabled={Boolean(busyPost)} style={{ width: '100%', padding: 15, borderRadius: 14, border: '1px dashed #333', background: 'none', color: '#bbb', fontSize: 14, cursor: 'pointer', marginBottom: 10 }}>
-            {busyPost === 'add' ? 'Пишем…' : '+ Добавить пост'}
-          </button>
+          <Btn full kind="ghost" disabled={Boolean(busyPost)} onClick={() => rewritePost()} style={{ marginBottom: 10, border: '1px dashed #333' }}>
+            {busyPost === 'add' && !adding ? 'Пишем…' : '+ Добавить пост (придумает ИИ)'}
+          </Btn>
           <Btn full kind="ghost" disabled={Boolean(busyPost)} onClick={() => retryDay()}>
             {busyPost === 'day' ? 'Переписываем день…' : 'Переписать день целиком'}
           </Btn>
@@ -386,17 +440,33 @@ function PostCard({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: GOAL_COLORS[p.goal] }} />
         <span style={{ fontSize: 13, color: '#999' }}>{p.time}</span>
+        {p.platform && <span style={{ fontSize: 10, fontWeight: 700, color: '#000', backgroundColor: PLATFORM_COLORS[p.platform] || '#ccc', borderRadius: 6, padding: '2px 7px' }}>{p.platform}</span>}
         <span style={{ fontSize: 10, color: GOAL_COLORS[p.goal], border: `1px solid ${GOAL_COLORS[p.goal]}50`, borderRadius: 20, padding: '1px 8px' }}>{p.goal}</span>
         <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' }}>{p.format}</span>
         <button onClick={onDelete} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#444', fontSize: 14, cursor: 'pointer' }}>✕</button>
       </div>
 
+      {p.hook && (
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#ffd166', backgroundColor: '#1d1a10', border: '1px solid #3a3420', borderRadius: 10, padding: '8px 10px', marginBottom: 8 }}>
+          🎬 Хук: {p.hook}
+        </div>
+      )}
       {editing ? (
         <textarea autoFocus value={p.text} onChange={(e) => onEdit(e.target.value)} onBlur={() => setEditing(false)} rows={5} style={{ ...textarea, marginBottom: 8 }} />
       ) : (
-        <div onClick={() => setEditing(true)} style={{ fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8, cursor: 'text' }}>{busy ? 'Переписываем…' : p.text}</div>
+        <div onClick={() => setEditing(true)} style={{ fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8, cursor: 'text' }}>
+          {busy
+            ? 'Переписываем…'
+            : p.text.split(/\n\s*-{3}\s*\n/).map((part, i) => (
+                <div key={i} style={i ? { borderTop: '1px dashed #333', marginTop: 10, paddingTop: 10 } : undefined}>
+                  {i > 0 && <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>ЧАСТЬ {i + 1}</div>}
+                  {part}
+                </div>
+              ))}
+        </div>
       )}
       {p.hashtags && <div style={{ fontSize: 12, color: '#7ea6ff', marginBottom: 8 }}>{p.hashtags}</div>}
+      {p.sound && <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>🎵 {p.sound}</div>}
 
       {p.needsMedia && p.imagePrompt && (
         <div style={{ marginBottom: 8 }}>
