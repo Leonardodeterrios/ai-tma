@@ -2,14 +2,14 @@
 // Создание нового проекта: анкета для «Продюсирую себя» или для ИИ-модели.
 import { useState } from 'react';
 import { DEMO_PERSONA, EMPTY_PERSONA, KINDS, MODEL_PLATFORMS, newId, type Kind, type Persona } from '../lib/persona';
-import { ArchetypeCard, ArchetypeTest, MultiChips, PhotoRefs, SelfBrandFields, SelfVoiceFields, StoryFields } from './PersonaParts';
+import { ArchetypeCard, ArchetypeTest, MultiChips, PhotoRefs, SelfBrandFields, SelfGoalFields, SelfPlatformFields, SelfVoiceFields, StoryFields } from './PersonaParts';
 import { Btn, card, hint, input, label, neon, textarea } from './ui';
 
-type Step = 'welcome' | 'test' | 'story' | 'voice' | 'brand';
+type Step = 'welcome' | 'test' | 'story' | 'voice' | 'brand' | 'goal' | 'platforms';
 
 const STEPS: Record<Kind, string[]> = {
   model: ['Тест на архетип: 9 вопросов', 'История персонажа', 'Её голос: пара примеров сообщений'],
-  self: ['Ниша, аудитория и что продаёшь', 'Твой голос: тон и пара постов'],
+  self: ['Сайт, ниша и аудитория', 'Цель, продукт и кейсы', 'Площадки: что развиваем', 'Твой голос: тон и пара постов'],
 };
 
 export default function Onboarding({ kind, onFinish, onCancel }: { kind: Kind; onFinish: (p: Persona) => void; onCancel: () => void }) {
@@ -60,7 +60,31 @@ export default function Onboarding({ kind, onFinish, onCancel }: { kind: Kind; o
         <SelfBrandFields p={p} set={set} />
         <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
           {back('welcome')}
-          <Btn style={{ flex: 1 }} disabled={!p.name.trim()} onClick={() => setStep('voice')}>{p.name.trim() ? 'Далее' : 'Напиши имя'}</Btn>
+          <Btn style={{ flex: 1 }} disabled={!p.name.trim()} onClick={() => setStep('goal')}>{p.name.trim() ? 'Далее' : 'Напиши имя'}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'goal') {
+    return (
+      <div>
+        <SelfGoalFields p={p} set={set} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          {back('brand')}
+          <Btn style={{ flex: 1 }} onClick={() => setStep('platforms')}>Далее</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'platforms') {
+    return (
+      <div>
+        <SelfPlatformFields p={p} set={set} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          {back('goal')}
+          <Btn style={{ flex: 1 }} disabled={!p.platforms.length} onClick={() => setStep('voice')}>{p.platforms.length ? 'Далее' : 'Выбери площадку'}</Btn>
         </div>
       </div>
     );
@@ -71,7 +95,7 @@ export default function Onboarding({ kind, onFinish, onCancel }: { kind: Kind; o
       <div>
         <SelfVoiceFields p={p} set={set} />
         <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-          {back('brand')}
+          {back('platforms')}
           <Btn style={{ flex: 1 }} onClick={finish}>Готово</Btn>
         </div>
       </div>

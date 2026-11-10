@@ -36,6 +36,39 @@ export type Persona = {
   offer: string;       // что продаёшь (курс, услуги…) или пусто
   tone: string;        // тон: дружеский, экспертный…
   platforms: string[]; // где ведёшь
+  focus: string;       // 'all' — все площадки по воронке, или одна площадка
+  site: string;        // сайт автора или продукта
+  instagram: string;   // ссылка на инстаграм
+  goal: string;        // главная цель блога
+  vision: string;      // каким автор видит свой блог
+  proof: string;       // цифры, кейсы, результаты — то, что делает посты живыми
+  salesLevel: number;  // 1 мягко, 2 баланс, 3 активно
+  // цели в цифрах
+  goalFollowers: string; // сколько подписчиков хочу
+  goalRevenue: string;   // сколько денег в месяц, ₽
+  goalDeadline: string;  // к какому сроку (дата ГГГГ-ММ-ДД)
+};
+
+export const GOAL_CHIPS = ['Продажи продукта', 'Заявки на услуги', 'Рост подписчиков', 'Узнаваемость и личный бренд'];
+
+export const SALES_LEVELS: Record<number, { title: string; sub: string; rule: string }> = {
+  1: { title: 'Мягко', sub: '1 продающий пост в неделю', rule: 'Продаём мягко: 1 продающий пост в неделю (пятница), в остальные дни продукт не упоминаем.' },
+  2: { title: 'Баланс', sub: '2–3 продажи + упоминания', rule: 'Баланс: 2–3 продающих поста в неделю, в полезных постах продукт можно упомянуть одной фразой как решение.' },
+  3: { title: 'Активно', sub: 'призыв каждый день', rule: 'Активно: каждый день хотя бы в одном посте есть призыв к продукту, 3–4 прямых продающих поста в неделю, с дефицитом и дедлайном, если уместно.' },
+};
+
+/** Как работает каждая площадка — эти правила уходят в ИИ */
+export const PLATFORM_RULES: Record<string, string> = {
+  Threads: 'Threads — охват и комментарии. Провокационный тезис, спорное мнение, «непопулярное мнение:», вопрос-байт. Коротко: 1–2 части, вторую часть отдели строкой "---". Первая строка цепляет сама по себе. Можно со строчной буквы. Без хэштегов, без ссылок (максимум «ссылка в шапке»). В конце повод написать комментарий.',
+  Instagram: 'Instagram — Reels на охват. hook: текст на экране / первая фраза в первые 1–2 секунды, должен остановить скролл. sound: какой звук (трендовый звук и его настроение, или голос за кадром). imagePrompt: раскадровка рилса 3–5 коротких кадров. text: подпись до 60 слов с призывом (сохрани, отправь подруге, напиши слово в директ). 3–5 хэштегов.',
+  Telegram: 'Telegram — вторая ступень воронки: сюда приходят из Threads и Instagram, уже тёплые. Экспертно, но живо: личный опыт + польза + конкретика (цифры, шаги, инструменты, промпты, ошибки). 60–150 слов, абзацы по 1–3 предложения. Без хэштегов. В продающие дни — призыв к продукту.',
+  YouTube: 'YouTube — идея ролика или Shorts. hook: первая фраза. text: название + 2–3 предложения, о чём ролик. imagePrompt: план ролика.',
+  TikTok: 'TikTok — короткое видео. hook: первые 1–2 секунды. sound: трендовый звук или голос. imagePrompt: раскадровка. text: подпись до 30 слов.',
+  VK: 'VK — пост-история с пользой, 60–120 слов, 2–3 хэштега.',
+};
+export const PLATFORM_COLORS: Record<string, string> = {
+  Threads: '#e6e6e6', Instagram: '#ff6fb1', Telegram: '#5cb8ff', YouTube: '#ff5c5c', TikTok: '#6ff0e6', VK: '#7e9cff',
+  Fanvue: '#c58bff', OnlyFans: '#4fc3ff',
 };
 
 export const KINDS: Record<Kind, { emoji: string; title: string; sub: string }> = {
@@ -168,6 +201,16 @@ export const EMPTY_PERSONA: Persona = {
   offer: '',
   tone: '',
   platforms: [],
+  focus: 'all',
+  site: '',
+  instagram: '',
+  goal: '',
+  vision: '',
+  proof: '',
+  salesLevel: 2,
+  goalFollowers: '',
+  goalRevenue: '',
+  goalDeadline: '',
 };
 
 // Готовая Мия — для тех, кто хочет сначала просто попробовать
@@ -210,6 +253,10 @@ export type Post = {
   hashtags: string;
   needsMedia: boolean;
   imagePrompt: string; // пусто, если фото не нужно
+  platform?: string;   // Threads / Instagram / Telegram… (пусто — общий пост)
+  hook?: string;       // хук для рилс / видео
+  sound?: string;      // звук для рилс
+  own?: boolean;       // написан «своими словами» — не стираем при пересборке
   rating: 1 | 0 | -1;  // лайк / ничего / дизлайк
 };
 
@@ -229,5 +276,22 @@ export type Week = {
 export type Msg = { role: 'fan' | 'model'; text: string; time: number };
 export type Fan = { id: string; name: string; notes: string; stage: number; history: Msg[] };
 export type Reply = { text: string; translation: string };
+
+// ---------- Рост: недельные показатели и стратегия ----------
+export type Metrics = { followers: string; reach: string; comments: string; leads: string; sales: string; revenue: string; best: string };
+export const EMPTY_METRICS: Metrics = { followers: '', reach: '', comments: '', leads: '', sales: '', revenue: '', best: '' };
+export const METRIC_FIELDS: { key: Exclude<keyof Metrics, 'best'>; label: string; hint: string }[] = [
+  { key: 'followers', label: 'Подписчики', hint: 'сколько всего сейчас' },
+  { key: 'reach', label: 'Охваты / просмотры', hint: 'за неделю' },
+  { key: 'comments', label: 'Комментарии и реакции', hint: 'за неделю' },
+  { key: 'leads', label: 'Заявки в личку', hint: 'за неделю' },
+  { key: 'sales', label: 'Продажи', hint: 'штук за неделю' },
+  { key: 'revenue', label: 'Выручка, ₽', hint: 'за неделю' },
+];
+export type Recommendation = { text: string; why: string };
+export type Strategy = { summary: string; verdict: string; focus: string; recommendations: Recommendation[]; scenario: string };
+export type ReviewItem = { done: boolean | null; reason: string };
+export type CheckIn = { metrics: Metrics; review: ReviewItem[]; confirmed: boolean; strategy?: Strategy; appliedToPlan?: boolean };
+export type GrowthStore = { weeks: Record<string, CheckIn> }; // ключ — дата понедельника ГГГГ-ММ-ДД
 
 export const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);

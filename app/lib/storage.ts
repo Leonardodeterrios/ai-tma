@@ -12,6 +12,7 @@ export function projectKeys(id: string) {
     fans: `vb_fans_${id}`,
     liked: `vb_liked_${id}`,
     assistant: `vb_assistant_${id}`,
+    growth: `vb_growth_${id}`,
   };
 }
 
