@@ -2,8 +2,8 @@
 // Вкладка «План»: календарь недели, посты по дням, сценарий и медиа.
 import { useEffect, useMemo, useState } from 'react';
 import {
-  DAYS, GOALS, GOAL_COLORS, PLATFORM_COLORS, newId,
-  type DayPlan, type Goal, type Persona, type PlanStore, type Post, type Taste, type Week,
+  DAYS, GOALS, GOAL_COLORS, MEDIA_ICONS, MEDIA_TYPES, PLATFORM_COLORS, VIDEO_MEDIA, newId,
+  type DayPlan, type Goal, type MediaType, type Persona, type PlanStore, type Post, type Taste, type Week,
 } from '../lib/persona';
 import { addDays, copyText, errorText, mondayOf, postJSON } from '../lib/client';
 import { projectKeys, useStored } from '../lib/storage';
@@ -20,8 +20,14 @@ const DAY_MS = 86_400_000;
 const emptyWeek = (): Week => ({ storyline: '', scenario: '', bans: '', days: [] });
 const asGoal = (g: unknown): Goal => (GOALS.includes(g as Goal) ? (g as Goal) : 'Доверие');
 
+/** Тип контента поста; у старых сохранённых постов его нет — выводим из needsMedia */
+function mediaOf(r: { media?: string; needsMedia?: boolean }): MediaType {
+  return MEDIA_TYPES.includes(r.media as MediaType) ? (r.media as MediaType) : r.needsMedia ? 'Фото' : 'Текст';
+}
+
 function toPost(r: RawPost): Post {
-  const needsMedia = Boolean(r.needsMedia);
+  const media = mediaOf(r);
+  const video = VIDEO_MEDIA.includes(media);
   return {
     id: newId(),
     time: /^\d{1,2}:\d{2}$/.test(r.time || '') ? (r.time as string).padStart(5, '0') : '12:00',
@@ -29,23 +35,21 @@ function toPost(r: RawPost): Post {
     goal: asGoal(r.goal),
     text: r.text || '',
     hashtags: r.hashtags || '',
-    needsMedia,
-    imagePrompt: needsMedia ? r.imagePrompt || '' : '',
+    media,
+    needsMedia: media !== 'Текст',
+    imagePrompt: media !== 'Текст' ? r.imagePrompt || '' : '',
     platform: r.platform || '',
-    hook: r.hook || '',
-    sound: r.sound || '',
+    hook: video ? r.hook || '' : '', // хук нужен только видео
+    sound: video ? r.sound || '' : '',
+    translation: r.translation || '',
     rating: 0,
   };
 }
 
 const byTime = (a: Post, b: Post) => a.time.localeCompare(b.time);
 const postForCopy = (p: Post) => [p.hook && `Хук: ${p.hook}`, p.text, p.hashtags].filter(Boolean).join('\n\n');
-const PLATFORM_ORDER = ['Threads', 'Instagram', 'TikTok', 'YouTube', 'VK', 'Telegram'];
-// посты дня: по времени, а в связке — по воронке (охват → Telegram)
-const sortPosts = (a: Post, b: Post) =>
-  a.platform && b.platform && a.platform !== b.platform
-    ? PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform)
-    : byTime(a, b);
+// посты дня идут по времени публикации
+const sortPosts = byTime;
 
 export default function ContentPlan({ persona, onAppearance }: { persona: Persona; onAppearance: (a: string) => void }) {
   const keys = projectKeys(persona.id);
@@ -303,7 +307,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
             <p style={{ ...hint, fontSize: 13 }}>{self ? 'Что снять на этой неделе. Удобно отснять всё за один раз.' : 'Все промпты для фото этой недели в одном месте. Сгенерируй их пачкой в Студии.'}</p>
             {items.map(({ p, d }) => (
               <div key={p.id} style={{ ...card, marginBottom: 10 }}>
-                <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{d} · {p.time}{p.platform ? ` · ${p.platform}` : ''} · {p.text.slice(0, 50)}{p.text.length > 50 ? '…' : ''}</div>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{d} · {p.time} · {MEDIA_ICONS[mediaOf(p)]} {mediaOf(p)}{p.platform ? ` · ${p.platform}` : ''} · {p.text.slice(0, 50)}{p.text.length > 50 ? '…' : ''}</div>
                 <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.45, marginBottom: 10 }}>{p.imagePrompt}</div>
                 <Btn kind="ghost" small onClick={() => doCopy(p.imagePrompt, 'm' + p.id)}>{copied === 'm' + p.id ? '✓ Скопировано' : self ? 'Копировать' : 'Копировать промпт'}</Btn>
               </div>
@@ -423,6 +427,13 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
   );
 }
 
+/** Подпись к раскрывающемуся блоку «что в контенте» */
+function mediaLabel(m: MediaType, self: boolean) {
+  if (m === 'Голосовое') return 'О чём голосовое';
+  if (m === 'Фото' || m === 'Карусель') return self ? 'Что снять' : 'Промпт для фото';
+  return 'Что снять';
+}
+
 // ---------- Карточка поста ----------
 function PostCard({
   p, self, busy, copied, onEdit, onRate, onRewrite, onDelete, onCopy,
@@ -442,11 +453,12 @@ function PostCard({
         <span style={{ fontSize: 13, color: '#999' }}>{p.time}</span>
         {p.platform && <span style={{ fontSize: 10, fontWeight: 700, color: '#000', backgroundColor: PLATFORM_COLORS[p.platform] || '#ccc', borderRadius: 6, padding: '2px 7px' }}>{p.platform}</span>}
         <span style={{ fontSize: 10, color: GOAL_COLORS[p.goal], border: `1px solid ${GOAL_COLORS[p.goal]}50`, borderRadius: 20, padding: '1px 8px' }}>{p.goal}</span>
-        <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' }}>{p.format}</span>
+        <span style={{ fontSize: 11, color: '#ddd', backgroundColor: '#222', borderRadius: 6, padding: '2px 7px' }}>{MEDIA_ICONS[mediaOf(p)]} {mediaOf(p)}</span>
+        <span style={{ fontSize: 10, color: '#777' }}>{p.format}</span>
         <button onClick={onDelete} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#444', fontSize: 14, cursor: 'pointer' }}>✕</button>
       </div>
 
-      {p.hook && (
+      {p.hook && VIDEO_MEDIA.includes(mediaOf(p)) && (
         <div style={{ fontSize: 13, fontWeight: 700, color: '#ffd166', backgroundColor: '#1d1a10', border: '1px solid #3a3420', borderRadius: 10, padding: '8px 10px', marginBottom: 8 }}>
           🎬 Хук: {p.hook}
         </div>
@@ -465,13 +477,14 @@ function PostCard({
               ))}
         </div>
       )}
+      {p.translation && <div style={{ fontSize: 12, color: '#888', lineHeight: 1.45, marginBottom: 8, borderLeft: '2px solid #333', paddingLeft: 8 }}>🇷🇺 {p.translation}</div>}
       {p.hashtags && <div style={{ fontSize: 12, color: '#7ea6ff', marginBottom: 8 }}>{p.hashtags}</div>}
       {p.sound && <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>🎵 {p.sound}</div>}
 
       {p.needsMedia && p.imagePrompt && (
         <div style={{ marginBottom: 8 }}>
           <button onClick={() => setShowPrompt(!showPrompt)} style={{ background: 'none', border: 'none', color: '#d9945b', fontSize: 12, padding: 0, cursor: 'pointer' }}>
-            📷 {self ? 'Нужно фото/видео' : 'Нужно фото'} {showPrompt ? '▴' : self ? '▾ что снять' : '▾ промпт'}
+            {MEDIA_ICONS[mediaOf(p)]} {mediaLabel(mediaOf(p), self)} {showPrompt ? '▴' : '▾'}
           </button>
           {showPrompt && (
             <div style={{ backgroundColor: '#000', border: '1px solid #222', borderRadius: 10, padding: 10, marginTop: 6 }}>
@@ -481,7 +494,6 @@ function PostCard({
           )}
         </div>
       )}
-      {!p.needsMedia && <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>{self ? 'Только текст' : 'Без фото'}</div>}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderTop: '1px solid #1c1c1c', paddingTop: 8 }}>
         <button style={icon(p.rating === 1)} onClick={() => onRate(1)} title="Нравится">👍</button>

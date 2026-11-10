@@ -6,10 +6,10 @@ export type Arche = 'siren' | 'mystery' | 'girl' | 'queen' | 'rebel' | 'muse' | 
 // en_ru — фанату пишем на английском сленге, а тебе показываем русский перевод
 export type LanguageMode = 'ru' | 'en' | 'en_ru';
 
-export const LANGUAGE_OPTIONS: { id: LanguageMode; label: string }[] = [
-  { id: 'ru', label: 'Только русский' },
-  { id: 'en', label: 'Только английский (разговорный)' },
-  { id: 'en_ru', label: 'Английский для фаната + русский перевод для меня' },
+export const LANGUAGE_OPTIONS: { id: LanguageMode; label: string; sub: string }[] = [
+  { id: 'ru', label: '🇷🇺 Русский', sub: 'посты и ответы по-русски' },
+  { id: 'en', label: '🇺🇸 English', sub: 'посты и ответы на английском' },
+  { id: 'en_ru', label: '🇺🇸 English + перевод', sub: 'на английском, а тебе русский перевод' },
 ];
 export type StoryMode = 'have' | 'create' | 'none';
 
@@ -70,6 +70,24 @@ export const PLATFORM_COLORS: Record<string, string> = {
   Threads: '#e6e6e6', Instagram: '#ff6fb1', Telegram: '#5cb8ff', YouTube: '#ff5c5c', TikTok: '#6ff0e6', VK: '#7e9cff',
   Fanvue: '#c58bff', OnlyFans: '#4fc3ff',
 };
+
+/** Правила площадок для ИИ-модели (у блога свои — PLATFORM_RULES) */
+export const MODEL_PLATFORM_RULES: Record<string, string> = {
+  Threads: 'Threads — охват, без откровенного. Мнение, смешной случай из её жизни, спорный вопрос, повод написать комментарий. 1–2 части через "---". Без хэштегов. Максимум «ссылка в шапке».',
+  Instagram: 'Instagram — лайфстайл Reels и фото без откровенного: её день, место, образ. hook для видео, подпись до 40 слов, 3–5 хэштегов.',
+  Telegram: 'Telegram — её личный канал: жизнь, характер, мысли, кружки и голосовые, близость с подписчиками. Здесь знакомятся с ней как с человеком и привыкают к ней. Продажа — редко и мягко.',
+  Fanvue: 'Fanvue — платная площадка: подписи к постам и PPV-описания. Лично, игриво, с намёком, без графической откровенности. Призыв написать в личку или открыть PPV.',
+  OnlyFans: 'OnlyFans — платная площадка: подписи к постам и PPV-описания. Лично, игриво, с намёком, без графической откровенности. Призыв написать в личку или открыть PPV.',
+};
+
+// ---------- Тип контента поста ----------
+export const MEDIA_TYPES = ['Текст', 'Фото', 'Карусель', 'Видео', 'Рилс', 'Кружок', 'Голосовое', 'Сторис'] as const;
+export type MediaType = (typeof MEDIA_TYPES)[number];
+export const MEDIA_ICONS: Record<MediaType, string> = {
+  'Текст': '📝', 'Фото': '📷', 'Карусель': '🖼', 'Видео': '🎬', 'Рилс': '🎞', 'Кружок': '⭕️', 'Голосовое': '🎙', 'Сторис': '📱',
+};
+/** Для этих типов нужен хук и звук */
+export const VIDEO_MEDIA: MediaType[] = ['Видео', 'Рилс', 'Кружок', 'Сторис'];
 
 export const KINDS: Record<Kind, { emoji: string; title: string; sub: string }> = {
   self:  { emoji: '🙋‍♀️', title: 'Продюсирую себя', sub: 'Блог, канал, личный бренд' },
@@ -254,6 +272,8 @@ export type Post = {
   needsMedia: boolean;
   imagePrompt: string; // пусто, если фото не нужно
   platform?: string;   // Threads / Instagram / Telegram… (пусто — общий пост)
+  media?: MediaType;   // текст, фото, видео, кружок…
+  translation?: string; // русский перевод, если модель пишет на английском
   hook?: string;       // хук для рилс / видео
   sound?: string;      // звук для рилс
   own?: boolean;       // написан «своими словами» — не стираем при пересборке

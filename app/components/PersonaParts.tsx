@@ -1,7 +1,7 @@
 'use client';
 // Части персонажа, которые используются и при первом входе, и в редакторе.
 import { useRef, useState } from 'react';
-import { ARCHETYPES, GOAL_CHIPS, OFFER_CHIPS, SALES_LEVELS, SELF_PLATFORMS, STORY_CHIPS, TEST, TONES, type Arche, type Persona, type StoryMode } from '../lib/persona';
+import { ARCHETYPES, GOAL_CHIPS, LANGUAGE_OPTIONS, MODEL_PLATFORMS, OFFER_CHIPS, SALES_LEVELS, SELF_PLATFORMS, STORY_CHIPS, TEST, TONES, type Arche, type Persona, type StoryMode } from '../lib/persona';
 import { compressImage, errorText, postJSON } from '../lib/client';
 import { Btn, Chip, card, hint, input, label, neon, neonBg, textarea } from './ui';
 
@@ -267,14 +267,15 @@ export function SelfGoalFields({ p, set }: { p: Persona; set: SetP }) {
   );
 }
 
-/** Шаг 3: где ведёшь и что развиваем */
+/** Шаг 3: где ведёшь и что развиваем (и для блога, и для модели) */
 export function SelfPlatformFields({ p, set }: { p: Persona; set: SetP }) {
   const several = p.platforms.length > 1;
+  const model = p.kind === 'model';
   return (
     <div>
-      <span style={label}>Где ведёшь или хочешь вести</span>
+      <span style={label}>{model ? 'Где она живёт' : 'Где ведёшь или хочешь вести'}</span>
       <MultiChips
-        options={SELF_PLATFORMS}
+        options={model ? MODEL_PLATFORMS : SELF_PLATFORMS}
         value={p.platforms}
         onChange={(platforms) => set({
           platforms,
@@ -288,7 +289,7 @@ export function SelfPlatformFields({ p, set }: { p: Persona; set: SetP }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button onClick={() => set({ focus: 'all' })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, cursor: 'pointer', border: p.focus === 'all' ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: p.focus === 'all' ? neonBg : '#0d0d0d' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: p.focus === 'all' ? neon : '#ddd' }}>Всё вместе, как воронку</div>
-              <div style={{ fontSize: 11, color: '#777', marginTop: 3, lineHeight: 1.4 }}>Каждый день посты для каждой площадки. Threads и Instagram дают охват, Telegram прогревает, дальше продукт.</div>
+              <div style={{ fontSize: 11, color: '#777', marginTop: 3, lineHeight: 1.4 }}>{model ? 'Каждый день посты для каждой площадки. Threads и Instagram знакомят с ней, в Telegram к ней привыкают, Fanvue и OnlyFans продают.' : 'Каждый день посты для каждой площадки. Threads и Instagram дают охват, Telegram прогревает, дальше продукт.'}</div>
             </button>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {p.platforms.map((x) => <Chip key={x} active={p.focus === x} onClick={() => set({ focus: x })}>Только {x}</Chip>)}
@@ -318,6 +319,26 @@ export function SelfVoiceFields({ p, set }: { p: Persona; set: SetP }) {
 
       <span style={label}>Факты из жизни для живых постов</span>
       <textarea value={p.lifeFacts} onChange={(e) => set({ lifeFacts: e.target.value })} rows={2} placeholder="город, дом, дети, питомцы, хобби, привычки" style={textarea} />
+    </div>
+  );
+}
+
+// ---------- Язык модели ----------
+export function LanguageFields({ p, set }: { p: Persona; set: SetP }) {
+  return (
+    <div>
+      <span style={label}>На каком языке говорит модель</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {LANGUAGE_OPTIONS.map((o) => {
+          const on = p.languageMode === o.id;
+          return (
+            <button key={o.id} onClick={() => set({ languageMode: o.id })} style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 12, cursor: 'pointer', border: on ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: on ? neonBg : '#0d0d0d' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: on ? neon : '#ddd' }}>{o.label}</div>
+              <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>{o.sub}</div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

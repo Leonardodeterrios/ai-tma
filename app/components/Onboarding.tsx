@@ -1,14 +1,14 @@
 'use client';
 // Создание нового проекта: анкета для «Продюсирую себя» или для ИИ-модели.
 import { useState } from 'react';
-import { DEMO_PERSONA, EMPTY_PERSONA, KINDS, MODEL_PLATFORMS, newId, type Kind, type Persona } from '../lib/persona';
-import { ArchetypeCard, ArchetypeTest, MultiChips, PhotoRefs, SelfBrandFields, SelfGoalFields, SelfPlatformFields, SelfVoiceFields, StoryFields } from './PersonaParts';
+import { DEMO_PERSONA, EMPTY_PERSONA, KINDS, newId, type Kind, type Persona } from '../lib/persona';
+import { ArchetypeCard, ArchetypeTest, LanguageFields, PhotoRefs, SelfBrandFields, SelfGoalFields, SelfPlatformFields, SelfVoiceFields, StoryFields } from './PersonaParts';
 import { Btn, card, hint, input, label, neon, textarea } from './ui';
 
 type Step = 'welcome' | 'test' | 'story' | 'voice' | 'brand' | 'goal' | 'platforms';
 
 const STEPS: Record<Kind, string[]> = {
-  model: ['Тест на архетип: 9 вопросов', 'История персонажа', 'Её голос: пара примеров сообщений'],
+  model: ['Тест на архетип: 9 вопросов', 'История персонажа', 'Голос, язык и площадки'],
   self: ['Сайт, ниша и аудитория', 'Цель, продукт и кейсы', 'Площадки: что развиваем', 'Твой голос: тон и пара постов'],
 };
 
@@ -145,9 +145,12 @@ export default function Onboarding({ kind, onFinish, onCancel }: { kind: Kind; o
       <p style={hint}>Вставь 2–3 настоящих сообщения. ИИ скопирует длину фраз, сленг и эмодзи.</p>
       <textarea value={p.examples} onChange={(e) => set({ examples: e.target.value })} rows={5} placeholder={'приветик) как прошёл день?\n\nблин, я сегодня вырубилась в 9 вечера 😅'} style={{ ...textarea, marginBottom: 14 }} />
 
-      <span style={label}>Где она живёт</span>
-      <div style={{ marginBottom: 14 }}>
-        <MultiChips options={MODEL_PLATFORMS} value={p.platforms} onChange={(platforms) => set({ platforms })} />
+      <div style={{ ...card, marginBottom: 14 }}>
+        <LanguageFields p={p} set={set} />
+      </div>
+
+      <div style={{ ...card, marginBottom: 14 }}>
+        <SelfPlatformFields p={p} set={set} />
       </div>
 
       <div style={{ ...card, marginBottom: 18 }}>
