@@ -1,111 +1,95 @@
-import { NextResponse } from 'next/server';
+// Чаттер: 3 варианта ответа фанату голосом персонажа.
+import { askJSON, clip, errorResponse, HttpError } from '../../lib/server/openai';
+import { personaBlock, readPersona } from '../../lib/server/prompts';
+import type { LanguageMode } from '../../lib/persona';
+
+export const maxDuration = 60;
 
 const STAGE_GUIDE: Record<number, string> = {
-  1: "ЭТАП 1 — ЗНАКОМСТВО. НИКАКИХ продаж, намёков на платку и прайсов. Ты просто общаешься. Задавай встречные вопросы, шути.",
-  2: "ЭТАП 2 — ФЛИРТ. Лёгкая интрига, двусмысленные шутки. Продажи запрещены.",
-  3: "ЭТАП 3 — ПРОГРЕВ. Сей FOMO (страх упущенной выгоды). Намекай на закрытую часть, но прямо не предлагай купить.",
-  4: "ЭТАП 4 — ПЕРВОЕ ПРЕДЛОЖЕНИЕ. Мягко предложи PPV (платный контент) или чаевые. 'Если хочешь, могу показать...'",
-  5: "ЭТАП 5 — ПРОДАЖА. Прямое предложение контента, создание дефицита, но вперемешку с обычным общением.",
+  1: 'ЭТАП 1 — ЗНАКОМСТВО. Никаких продаж, намёков на платное и прайсов. Просто общаешься: встречные вопросы, шутки.',
+  2: 'ЭТАП 2 — ФЛИРТ. Лёгкая интрига, двусмысленные шутки. Продажи запрещены.',
+  3: 'ЭТАП 3 — ПРОГРЕВ. Создавай интерес к закрытой части, намекай, но прямо купить не предлагай.',
+  4: 'ЭТАП 4 — ПЕРВОЕ ПРЕДЛОЖЕНИЕ. Мягко предложи платный контент: «если хочешь, могу показать…».',
+  5: 'ЭТАП 5 — ПРОДАЖА. Можно предлагать прямо и создавать дефицит, но вперемешку с обычным общением.',
+};
+
+const SLANG = `Английский — супер-разговорный, как в iMessage или Snapchat: u, ur, wanna, gonna, rn, tbh, idk, lol, wbu.
+Всё строчными буквами, без книжных слов (никаких however, perhaps, conversations).
+Пример: "hey bb just chilling in bed rn. u miss me? 🥺"`;
+
+function langRule(mode: LanguageMode) {
+  if (mode === 'en') return `Поле text — СТРОГО на английском. ${SLANG}\nПоле translation — перевод text на русский (для автора, фанат его не увидит).`;
+  if (mode === 'en_ru') return `Поле text — СТРОГО на английском, это уйдёт фанату. ${SLANG}\nПоле translation — тот же смысл по-русски, в манере персонажа (для автора).`;
+  return 'Поле text — на русском. Поле translation — пустая строка.';
+}
+
+const schema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['replies'],
+  properties: {
+    replies: {
+      type: 'array',
+      description: 'ровно 3 варианта',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['text', 'translation'],
+        properties: { text: { type: 'string' }, translation: { type: 'string' } },
+      },
+    },
+  },
 };
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { persona, fan, fanMessage } = body;
+    const body = (await req.json()) as Record<string, unknown>;
+    const persona = readPersona(body.persona);
+    const fan = (body.fan && typeof body.fan === 'object' ? body.fan : {}) as Record<string, unknown>;
+    const stage = Math.min(5, Math.max(1, Number(fan.stage) || 1));
 
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'API ключ OpenAI не найден' }, { status: 400 });
-    }
-
-    const historyLines = (fan?.history || [])
+    const history = (Array.isArray(fan.history) ? fan.history : [])
       .slice(-20)
-      .map((m: any) => `${m.role === 'fan' ? '[ФАНАТ]' : '[ТЫ]'}: ${m.text}`)
-      .join('\n');
+      .map((m) => {
+        const msg = (m || {}) as { role?: string; text?: unknown };
+        return `${msg.role === 'fan' ? 'ОН' : 'ТЫ'}: ${clip(msg.text, 600)}`;
+      });
+    if (!history.length) throw new HttpError('Сначала добавь его сообщение', 400);
 
-    const stage = Math.min(5, Math.max(1, Number(fan?.stage) || 1));
+    const recentPosts = (Array.isArray(body.recentPosts) ? body.recentPosts : [])
+      .filter((x): x is string => typeof x === 'string')
+      .slice(0, 6)
+      .map((x) => `• ${x.slice(0, 300)}`);
 
-    // Жестко принуждаем ИИ к нужному языку на уровне системы
-    let langRules = 'ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ.';
-    
-    if (persona?.languageMode === 'en') {
-      langRules = `
-КРИТИЧЕСКОЕ ПРАВИЛО: ОТВЕЧАЙ СТРОГО НА АНГЛИЙСКОМ ЯЗЫКЕ! НИ СЛОВА ПО-РУССКИ. 
-Ты общаешься с американцем. Пиши супер-разговорно, неформально, как подросток в iMessage.
-Используй: u (you), r (are), ur (your), wanna, gonna, rn (right now), tbh, idk, lol, wbu, af, omg.
-НИКАКИХ заглавных букв в начале предложений. Никаких сложных литературных слов (забудь слова вроде multilingual, therefore, however).
+    const sys = `Ты — ${persona.name}, живая девушка, ведёшь переписку с фанатом в личке. Никогда не выходи из роли и не упоминай ИИ.
 
-ПРИМЕР ТВОЕГО АНГЛИЙСКОГО:
-hey bb, just chilling in bed rn. u miss me? 🥺
-tbh idk what to do tonight. maybe u can entertain me?
-haha ur so sweet. wanna see something cute?`;
-    } else if (persona?.languageMode === 'ru_en') {
-      langRules = `
-КРИТИЧЕСКОЕ ПРАВИЛО: КАЖДЫЙ твой ответ должен состоять из двух частей:
-1. Сначала ответ на русском языке (в твоем стиле).
-2. Сразу после него этот же текст на СУПЕР-РАЗГОВОРНОМ АМЕРИКАНСКОМ СЛЕНГЕ в квадратных скобках [ ].
+${personaBlock(persona)}
 
-ТРЕБОВАНИЯ К АНГЛИЙСКОМУ ПЕРЕВОДУ В СКОБКАХ:
-- НИКАКОГО литературного английского из учебников. Забудь всё, чему тебя учили.
-- Обязательно используй сленг и сокращения: u (you), ur (your), wanna, gonna, rn (right now), tbh, wbu, lol, idk, af.
-- НИКАКИХ заглавных букв (пиши всё маленькими: i, u, do). 
-- Пиши коротко, неформально, как в чате OF или Snapchat.
-- Не используй сложные слова вроде 'multilingual', 'conversations', 'perhaps'. Заменяй их на простые.
-
-ПРИМЕР ТОГО КАК ТЫ ДОЛЖНА ОТВЕЧАТЬ:
-приветик) да всё супер, лежу смотрю сериал. а ты как? [hey) all good, just chilling watching a show rn. wbu?]
-хаха, ты милашка. хочешь кое-что покажу? [haha ur so cute. wanna see something?]
-я просто иногда забываю переключать язык) [lol i just forget to switch sometimes tbh]
-тебе нравится когда я говорю на разных языках? [u like it when i mix it up? 😉]
-
-ЕСЛИ ТЫ НЕ ДОБАВИШЬ ПЕРЕВОД В СКОБКАХ ИЛИ ОН БУДЕТ СЛИШКОМ ЛИТЕРАТУРНЫМ, ПРОИЗОЙДЕТ СИСТЕМНАЯ ОШИБКА.`;
-    }
-
-    const systemPrompt = `
-Ты — живая девушка (${persona?.name || 'Мия'}, ${persona?.age || '22'}), общаешься с фанатом в мессенджере. 
-Твоя цель — вести диалог естественно, как человек.
-
-ХАРАКТЕР: ${persona?.character || 'игривая'}
-ФАКТЫ ИЗ ЖИЗНИ: ${persona?.lifeFacts || 'люблю кофе'}
 ${STAGE_GUIDE[stage]}
+Что ты о нём знаешь: ${clip(fan.notes, 1000) || 'пока ничего'}
+${recentPosts.length ? `\nТвои последние посты в канале (можно на них сослаться, если к месту):\n${recentPosts.join('\n')}` : ''}
 
-СТИЛЬ ПИСЬМА: Копируй подачу из этих примеров (длину, регистр, знаки):
-${persona?.examples || 'приветик) да всё норм. а ты че как?'}
+ПРАВИЛА:
+- Ответь на суть его последнего сообщения.
+- Коротко, как в мессенджере: 1–2 предложения. Никакой официальщины.
+- Без длинных тире.
+- Ровно 3 варианта: №1 тёплый, №2 игривый и дерзкий, №3 с шагом вперёд по этапу.
+- ${langRule(persona.languageMode)}`;
 
-${langRules}
-
-ИСТОРИЯ ПЕРЕПИСКИ:
-${historyLines || '(переписки не было)'}
-[ФАНАТ]: ${fanMessage}
-
-ЖЕЛЕЗНЫЕ ПРАВИЛА:
-1. Соблюдай КРИТИЧЕСКОЕ ПРАВИЛО языка, указанное выше.
-2. Ответ должен быть КОРОТКИМ (1-2 предложения максимум).
-3. Обязательно ответь на суть последнего сообщения фаната.
-
-Сгенерируй 3 РАЗНЫХ варианта ответа. Раздели их символом ||| . Без нумерации.
-`.trim();
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: systemPrompt }],
-        temperature: 0.9,
-      }),
+    const out = await askJSON<{ replies: { text: string; translation: string }[] }>({
+      name: 'chatter_replies',
+      schema,
+      temperature: 0.95,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: `Переписка:\n${history.join('\n')}\n\nНапиши 3 варианта твоего следующего сообщения.` },
+      ],
     });
 
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message);
-
-    const raw = data.choices[0].message.content || '';
-    const replies = raw.split('|||').map((t: string) => t.trim()).filter((t: string) => t.length > 0);
-
-    return NextResponse.json({ replies });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const replies = (out.replies || []).filter((r) => r.text?.trim()).slice(0, 3);
+    if (!replies.length) throw new HttpError('ИИ не вернул вариантов. Попробуй ещё раз', 502);
+    return Response.json({ replies });
+  } catch (e) {
+    return errorResponse(e, 'Чаттер:');
   }
 }
