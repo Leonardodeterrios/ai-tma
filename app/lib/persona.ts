@@ -288,8 +288,8 @@ export const METRIC_FIELDS: { key: Exclude<keyof Metrics, 'best'>; label: string
   { key: 'sales', label: 'Продажи', hint: 'штук за неделю' },
   { key: 'revenue', label: 'Выручка, ₽', hint: 'за неделю' },
 ];
-export type Recommendation = { text: string; why: string };
-export type Strategy = { summary: string; verdict: string; focus: string; recommendations: Recommendation[]; scenario: string };
+export type Recommendation = { text: string; why: string; platform?: string; example?: string };
+export type Strategy = { summary: string; verdict: string; focus: string; recommendations: Recommendation[]; scenario: string; math?: string[] };
 export type ReviewItem = { done: boolean | null; reason: string };
 export type CheckIn = { metrics: Metrics; review: ReviewItem[]; confirmed: boolean; strategy?: Strategy; appliedToPlan?: boolean };
 export type GrowthStore = { weeks: Record<string, CheckIn> }; // ключ — дата понедельника ГГГГ-ММ-ДД

@@ -5,7 +5,7 @@ import {
   EMPTY_METRICS, METRIC_FIELDS,
   type CheckIn, type GrowthStore, type Metrics, type Persona, type PlanStore, type ReviewItem, type Strategy, type Taste,
 } from '../lib/persona';
-import { addDays, errorText, mondayOf, postJSON } from '../lib/client';
+import { addDays, copyText, errorText, mondayOf, postJSON } from '../lib/client';
 import { projectKeys, readStored, useStored, writeStored } from '../lib/storage';
 import { Btn, ErrorBox, Spinner, card, hint, input, label, neon, neonBg } from './ui';
 
@@ -257,8 +257,17 @@ function ChoiceBtn({ on, color, onClick, children }: { on: boolean; color: strin
 }
 
 function StrategyCard({ s, applied, onApply, onEdit }: { s: Strategy; applied: boolean; onApply: () => void; onEdit: () => void }) {
+  const [copied, setCopied] = useState<number | null>(null);
   return (
     <div>
+      {s.math && s.math.length > 0 && (
+        <div style={{ ...card, marginBottom: 12 }}>
+          <span style={label}>🔢 Цифры недели</span>
+          {s.math.map((line, i) => (
+            <div key={i} style={{ fontSize: 13, color: '#ccc', lineHeight: 1.45, padding: '3px 0' }}>{line}</div>
+          ))}
+        </div>
+      )}
       <div style={{ ...card, marginBottom: 12, border: `1px solid ${neon}40` }}>
         <span style={label}>🧭 Стратегия на следующую неделю</span>
         <p style={{ fontSize: 14, lineHeight: 1.5, margin: '0 0 10px', color: '#ddd' }}>{s.summary}</p>
@@ -271,9 +280,18 @@ function StrategyCard({ s, applied, onApply, onEdit }: { s: Strategy; applied: b
         {s.recommendations.map((r, i) => (
           <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 0', borderTop: i ? '1px solid #1c1c1c' : 'none' }}>
             <span style={{ color: neon, fontWeight: 800, fontSize: 14 }}>{i + 1}</span>
-            <div>
-              <div style={{ fontSize: 14, lineHeight: 1.4 }}>{r.text}</div>
-              <div style={{ fontSize: 12, color: '#777', marginTop: 3, lineHeight: 1.35 }}>{r.why}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {r.platform && <span style={{ fontSize: 10, color: '#999', border: '1px solid #333', borderRadius: 6, padding: '1px 6px' }}>{r.platform}</span>}
+              <div style={{ fontSize: 14, lineHeight: 1.4, marginTop: r.platform ? 5 : 0 }}>{r.text}</div>
+              {r.example && (
+                <div style={{ fontSize: 13, color: '#e8e8e8', backgroundColor: '#0b0b0b', border: '1px solid #222', borderRadius: 10, padding: '8px 10px', marginTop: 6, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                  {r.example}
+                  <button onClick={async () => { if (await copyText(r.example || '')) { setCopied(i); setTimeout(() => setCopied(null), 1500); } }} style={{ display: 'block', background: 'none', border: 'none', color: '#666', fontSize: 11, padding: '6px 0 0', cursor: 'pointer' }}>
+                    {copied === i ? '✓ скопировано' : 'копировать'}
+                  </button>
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: '#777', marginTop: 5, lineHeight: 1.35 }}>{r.why}</div>
             </div>
           </div>
         ))}

@@ -84,14 +84,17 @@ function dayTask(p: Persona) {
 const postSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['platform', 'time', 'format', 'goal', 'hook', 'text', 'hashtags', 'needsMedia', 'imagePrompt', 'sound'],
+  // draft и problems — черновик и самопроверка: модель сначала пишет, потом ищет ошибки, и только потом даёт чистовик (text)
+  required: ['platform', 'time', 'format', 'goal', 'hook', 'draft', 'problems', 'text', 'hashtags', 'needsMedia', 'imagePrompt', 'sound'],
   properties: {
     platform: { type: 'string', enum: ALL_PLATFORMS },
     time: { type: 'string', description: 'время публикации ЧЧ:ММ' },
     format: { type: 'string', description: 'формат поста одним-двумя словами' },
     goal: { type: 'string', enum: GOALS },
     hook: { type: 'string', description: 'хук для видео: текст на экране в первые 1–2 секунды, или пусто' },
-    text: { type: 'string', description: 'текст поста / подпись' },
+    draft: { type: 'string', description: 'быстрый черновик поста' },
+    problems: { type: 'string', description: 'что в черновике плохо: стоп-фразы, вялый крючок, нет конкретики, выдуманные факты, лишние ! и эмодзи, не по правилам площадки. Коротко.' },
+    text: { type: 'string', description: 'чистовик: черновик, в котором исправлено всё из problems' },
     hashtags: { type: 'string', description: 'хэштеги через пробел или пустая строка' },
     needsMedia: { type: 'boolean' },
     imagePrompt: { type: 'string', description: 'что снять / раскадровка / промпт фото, или пусто' },
