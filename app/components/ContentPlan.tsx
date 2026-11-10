@@ -1,394 +1,422 @@
 'use client';
-import { useState, useRef } from 'react';
+// Вкладка «План»: календарь недели, посты по дням, сценарий и медиа.
+import { useEffect, useMemo, useState } from 'react';
+import {
+  DAYS, GOALS, GOAL_COLORS, newId,
+  type DayPlan, type Goal, type Persona, type PlanStore, type Post, type Taste, type Week,
+} from '../lib/persona';
+import { addDays, copyText, errorText, mondayOf, postJSON } from '../lib/client';
+import { KEYS, useStored } from '../lib/storage';
+import { Btn, Chip, ErrorBox, Spinner, card, hint, label, neon, textarea } from './ui';
 
-const neonGreen = '#d8ff4f';
+type Mode = 'feed' | 'scenario' | 'media';
+type RawPost = Partial<Omit<Post, 'id' | 'rating'>>;
+type Outline = { storyline: string; appearance: string; days: { day: string; beat: string; goal: string }[] };
+type Gen = { wi: number; phase: 'outline' | 'days'; done: number } | null;
 
-type Arche = 'siren' | 'mystery' | 'girl' | 'queen' | 'rebel' | 'muse' | 'huntress' | 'joker';
-type Post = { day: string; format: string; goal: string; title: string; text: string; hashtags: string; imagePrompt: string };
+const MONTHS = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'нояб', 'дек'];
+const DAY_MS = 86_400_000;
 
-const ARCHETYPES: Record<Arche, { name: string; emoji: string; tagline: string }> = {
-  siren:    { name: 'Сирена',        emoji: '🔥', tagline: 'Соблазн и власть взгляда' },
-  mystery:  { name: 'Загадка',       emoji: '🌙', tagline: 'Её не прочитать — и это цепляет' },
-  girl:     { name: 'Своя девчонка', emoji: '🌸', tagline: 'Тепло и лёгкость, как со старым другом' },
-  queen:    { name: 'Королева',      emoji: '👑', tagline: 'Холод, статус, высокая цена' },
-  rebel:    { name: 'Бунтарка',      emoji: '⚡️', tagline: 'Не по правилам, непредсказуемо' },
-  muse:     { name: 'Муза',          emoji: '🎨', tagline: 'Эстетика, свет, атмосфера' },
-  huntress: { name: 'Охотница',      emoji: '🎯', tagline: 'Спорт, драйв, она выбирает сама' },
-  joker:    { name: 'Комедиантка',   emoji: '😜', tagline: 'Юмор и самоирония' },
-};
+const emptyWeek = (): Week => ({ storyline: '', scenario: '', bans: '', days: [] });
+const asGoal = (g: unknown): Goal => (GOALS.includes(g as Goal) ? (g as Goal) : 'Доверие');
 
-const TEST: { q: string; options: { label: string; a: Arche }[] }[] = [
-  { q: 'В бар заходит он и присылает тебе коктейль. Ты…', options: [
-    { label: 'Поднимаю бокал и улыбаюсь — пусть гадает', a: 'mystery' },
-    { label: 'Подхожу первой: «и что ты хочешь?»', a: 'huntress' },
-    { label: 'Машу рукой, пусть садится рядом', a: 'girl' },
-    { label: 'Жду, пока подойдёт сам', a: 'siren' },
-  ]},
-  { q: 'Идеальная пятница — это…', options: [
-    { label: 'Ужин дома, вино, разговоры до трёх', a: 'muse' },
-    { label: 'Место, где меня ещё никто не видел', a: 'siren' },
-    { label: 'Клуб, громко, танцевать до утра', a: 'rebel' },
-    { label: 'Плед, сериал, переписка с фанатами', a: 'girl' },
-  ]},
-  { q: 'В переписке тебе важнее…', options: [
-    { label: 'Чтобы он гадал, что у меня в голове', a: 'mystery' },
-    { label: 'Чтобы было смешно', a: 'joker' },
-    { label: 'Чтобы он ловил каждый мой намёк', a: 'siren' },
-    { label: 'Чтобы было по-настоящему тепло', a: 'muse' },
-  ]},
-  { q: 'Что цепляет в мужчине?', options: [
-    { label: 'Уверенность и умение ждать', a: 'queen' },
-    { label: 'Чувство юмора', a: 'joker' },
-    { label: 'То, как он смотрит', a: 'siren' },
-    { label: 'Надёжность', a: 'muse' },
-  ]},
-  { q: 'Твой стиль в одежде?', options: [
-    { label: 'Дорого и строго по фигуре', a: 'queen' },
-    { label: 'Дерзко, наперекор правилам', a: 'rebel' },
-    { label: 'Мягко, уютно, но с изюмом', a: 'girl' },
-    { label: 'Спортивно, всегда в движении', a: 'huntress' },
-  ]},
-  { q: 'Фанат написал слишком нагло. Ты…', options: [
-    { label: 'Отвечу так, что он покраснеет', a: 'siren' },
-    { label: 'Холодно поставлю на место', a: 'queen' },
-    { label: 'Пошучу и переведу в игру', a: 'joker' },
-    { label: 'Промолчу и удалю', a: 'mystery' },
-  ]},
-  { q: 'Что чаще всего в твоём контенте?', options: [
-    { label: 'Эстетика: места, свет, моменты', a: 'muse' },
-    { label: 'Я сама, крупным планом', a: 'siren' },
-    { label: 'Смешные ситуации и мемы', a: 'joker' },
-    { label: 'Спорт, приключения, драйв', a: 'huntress' },
-  ]},
-  { q: 'Твоя суперсила?', options: [
-    { label: 'Он думает обо мне весь день', a: 'siren' },
-    { label: 'Непредсказуемость', a: 'rebel' },
-    { label: 'Лёгкость, с которой всё просто', a: 'girl' },
-    { label: 'Холодный расчёт', a: 'queen' },
-  ]},
-  { q: 'Когда тебе скучно, ты…', options: [
-    { label: 'Иду на тренировку или гулять далеко', a: 'huntress' },
-    { label: 'Устраиваю себе шопинг', a: 'queen' },
-    { label: 'Пишу фанату что-нибудь странное', a: 'joker' },
-    { label: 'Меняю что-то в жизни: стрижку, город', a: 'rebel' },
-  ]},
-];
+function toPost(r: RawPost): Post {
+  const needsMedia = Boolean(r.needsMedia);
+  return {
+    id: newId(),
+    time: /^\d{1,2}:\d{2}$/.test(r.time || '') ? (r.time as string).padStart(5, '0') : '12:00',
+    format: r.format || 'Пост',
+    goal: asGoal(r.goal),
+    text: r.text || '',
+    hashtags: r.hashtags || '',
+    needsMedia,
+    imagePrompt: needsMedia ? r.imagePrompt || '' : '',
+    rating: 0,
+  };
+}
 
-const STORY_CHIPS = ['переезд в новый город', 'учёба в универе', 'работа в баре', 'путешествия', 'своя студия', 'знакомства в сети'];
+const byTime = (a: Post, b: Post) => a.time.localeCompare(b.time);
+const postForCopy = (p: Post) => [p.text, p.hashtags].filter(Boolean).join('\n\n');
 
-export default function ContentPlan({ onSendToStudio }: { onSendToStudio?: (prompt: string) => void }) {
-  const [stage, setStage] = useState<'test' | 'story' | 'setup' | 'result'>('test');
+export default function ContentPlan({ persona, onAppearance }: { persona: Persona; onAppearance: (a: string) => void }) {
+  const [plan, setPlan, planReady] = useStored<PlanStore>(KEYS.plan, { start: '', weeks: {} });
+  const [taste, setTaste] = useStored<Taste>(KEYS.liked, { liked: [], disliked: [] });
 
-  const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<Record<number, Arche>>({});
-  const [arche, setArche] = useState<Arche | null>(null);
+  const today = useMemo(() => new Date(), []);
+  const start = plan.start ? new Date(plan.start) : mondayOf(today);
+  const currentWi = Math.max(0, Math.round((mondayOf(today).getTime() - start.getTime()) / (7 * DAY_MS)));
 
-  const [storyMode, setStoryMode] = useState<'have' | 'create' | 'none'>('have');
-  const [storyText, setStoryText] = useState('');
-  const [readyMessages, setReadyMessages] = useState('');
-
-  const [refs, setRefs] = useState<{ id: string; base64: string; preview: string }[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const [loading, setLoading] = useState(false);
-  const [posts, setPosts] = useState<Post[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [wi, setWi] = useState(0);
+  const [dayIdx, setDayIdx] = useState(0);
+  const [mode, setMode] = useState<Mode>('feed');
+  const [gen, setGen] = useState<Gen>(null);
+  const [error, setError] = useState('');
+  const [busyPost, setBusyPost] = useState<string | null>(null); // id поста или 'add' / 'day'
   const [copied, setCopied] = useState<string | null>(null);
 
-  const card: React.CSSProperties = { background: '#111', borderRadius: '16px', padding: '15px', border: '1px solid #222' };
-  const inputStyle: React.CSSProperties = { width: '100%', backgroundColor: '#000', border: '1px solid #333', borderRadius: '10px', color: '#fff', padding: '12px', fontSize: '13px', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' };
+  // первый запуск: запоминаем начало календаря и открываем текущую неделю и сегодняшний день
+  useEffect(() => {
+    if (!planReady) return;
+    if (!plan.start) setPlan((p) => ({ ...p, start: mondayOf(new Date()).toISOString() }));
+    setWi(currentWi);
+    setDayIdx((today.getDay() + 6) % 7);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planReady]);
 
-  const q = TEST[step];
-  const progress = Math.round(((step + 1) / TEST.length) * 100);
+  const week: Week = plan.weeks[wi] || emptyWeek();
+  const weekMonday = addDays(start, wi * 7);
+  const day: DayPlan | undefined = week.days[dayIdx];
+  const isGenerating = gen?.wi === wi;
+  const apiPersona = { ...persona, refs: [] };
 
-  const pick = (a: Arche) => {
-    const next = { ...answers, [step]: a };
-    setAnswers(next);
-    if (step < TEST.length - 1) {
-      setStep(step + 1);
-      return;
-    }
-    const count: Record<string, number> = {};
-    Object.values(next).forEach((k) => { count[k] = (count[k] || 0) + 1; });
-    const winner = (Object.keys(count).sort((x, y) => count[y] - count[x])[0] || 'siren') as Arche;
-    setArche(winner);
-    setStage('story');
-  };
+  // ---------- изменения плана ----------
+  const patchWeek = (w: number, fn: (wk: Week) => Week) =>
+    setPlan((p) => ({ ...p, weeks: { ...p.weeks, [w]: fn(p.weeks[w] || emptyWeek()) } }));
+  const patchDay = (w: number, d: number, fn: (dp: DayPlan) => DayPlan) =>
+    patchWeek(w, (wk) => ({ ...wk, days: wk.days.map((dp, i) => (i === d ? fn(dp) : dp)) }));
+  const patchPost = (id: string, patch: Partial<Post>) =>
+    patchDay(wi, dayIdx, (dp) => ({ ...dp, posts: dp.posts.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
 
-  const compress = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        const img = new Image();
-        img.src = reader.result as string;
-        img.onload = () => {
-          const max = 720;
-          const scale = Math.min(1, max / Math.max(img.width, img.height));
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/jpeg', 0.75));
-        };
-        img.onerror = () => reject(new Error('Не удалось прочитать фото'));
-      };
-      reader.onerror = () => reject(new Error('Не удалось прочитать фото'));
-    });
+  const setScenario = (patch: Partial<Pick<Week, 'scenario' | 'bans'>>) => patchWeek(wi, (wk) => ({ ...wk, ...patch }));
 
-  const addRefs = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    if (refs.length + files.length > 3) { alert('Максимум 3 референса'); return; }
+  // ---------- генерация ----------
+  const tasteBody = () => ({ liked: taste.liked.slice(0, 5), disliked: taste.disliked.slice(0, 3) });
+
+  const genDay = async (w: number, d: number, ctx: { wk: Week; appearance: string }) => {
+    const dp = ctx.wk.days[d];
     try {
-      const added = await Promise.all(files.map(async (f) => {
-        const b64 = await compress(f);
-        return { id: Math.random().toString(36).slice(2), base64: b64, preview: b64 };
-      }));
-      setRefs([...refs, ...added]);
-    } catch (err: any) {
-      alert(err.message || 'Ошибка фото');
-    }
-    if (fileRef.current) fileRef.current.value = '';
-  };
-
-  const generate = async () => {
-    setLoading(true);
-    setStage('result');
-    setError(null);
-    try {
-      const res = await fetch('/api/brain-plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          archetype: arche,
-          storyMode,
-          storyText,
-          readyMessages,
-          references: refs.map((r) => r.base64),
-        }),
+      const data = await postJSON<{ posts: RawPost[] }>('/api/brain-plan', {
+        action: 'day',
+        persona: { ...apiPersona, appearance: ctx.appearance },
+        storyline: ctx.wk.storyline,
+        scenario: ctx.wk.scenario,
+        bans: ctx.wk.bans,
+        day: DAYS[d],
+        beat: dp.beat,
+        goal: dp.goal,
+        weekBeats: ctx.wk.days.map((x, i) => `${DAYS[i]}: ${x.beat}`),
+        ...tasteBody(),
       });
-      const raw = await res.text();
-      let data: any;
-      try { data = JSON.parse(raw); } catch { throw new Error(`Сервер ответил не JSON (код ${res.status})`); }
-      if (!res.ok) throw new Error(data.error || 'Ошибка генерации');
-      if (!data.posts?.length) throw new Error('Модель не вернула постов');
-      setPosts(data.posts);
-    } catch (e: any) {
-      setError(e.message || 'Что-то пошло не так');
-    } finally {
-      setLoading(false);
+      patchDay(w, d, (x) => ({ ...x, failed: false, posts: data.posts.map(toPost).sort(byTime) }));
+    } catch {
+      patchDay(w, d, (x) => ({ ...x, failed: true }));
     }
   };
 
-  const reset = () => {
-    setStage('test'); setStep(0); setAnswers({}); setArche(null);
-    setPosts(null); setError(null); setStoryText(''); setReadyMessages(''); setRefs([]);
+  const buildWeek = async () => {
+    const w = wi;
+    const base = plan.weeks[w] || emptyWeek();
+    setError('');
+    setMode('feed');
+    setGen({ wi: w, phase: 'outline', done: 0 });
+    try {
+      const outline = await postJSON<Outline>('/api/brain-plan', {
+        action: 'outline',
+        persona: apiPersona,
+        references: persona.appearance ? [] : persona.refs,
+        scenario: base.scenario,
+        bans: base.bans,
+        ...tasteBody(),
+      });
+      const appearance = persona.appearance || outline.appearance || '';
+      if (!persona.appearance && outline.appearance) onAppearance(outline.appearance);
+
+      const wk: Week = {
+        ...base,
+        storyline: outline.storyline,
+        days: DAYS.map((_, i) => ({ beat: outline.days[i]?.beat || '', goal: asGoal(outline.days[i]?.goal), posts: [] })),
+      };
+      patchWeek(w, () => wk);
+      setGen({ wi: w, phase: 'days', done: 0 });
+
+      await Promise.all(
+        DAYS.map((_, i) => genDay(w, i, { wk, appearance }).then(() => setGen((g) => (g ? { ...g, done: g.done + 1 } : g)))),
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setGen(null);
+    }
   };
 
-  const copy = async (text: string, id: string) => {
-    try { await navigator.clipboard.writeText(text); setCopied(id); setTimeout(() => setCopied(null), 1500); }
-    catch { alert('Не удалось скопировать'); }
+  const retryDay = async (d = dayIdx) => {
+    setBusyPost('day');
+    patchDay(wi, d, (x) => ({ ...x, failed: false }));
+    await genDay(wi, d, { wk: week, appearance: persona.appearance });
+    setBusyPost(null);
   };
 
-  const postText = (p: Post) =>
-    `${p.day} · ${p.format}\n\n${p.title}\n\n${p.text}\n\n${p.hashtags}\n\nПромпт для Студии: ${p.imagePrompt}`;
+  const rewritePost = async (post?: Post) => {
+    if (!day) return;
+    setBusyPost(post ? post.id : 'add');
+    setError('');
+    try {
+      const data = await postJSON<{ post: RawPost }>('/api/brain-plan', {
+        action: 'post',
+        persona: apiPersona,
+        storyline: week.storyline,
+        scenario: week.scenario,
+        bans: week.bans,
+        day: DAYS[dayIdx],
+        beat: day.beat,
+        current: post?.text || '',
+        others: day.posts.filter((p) => p.id !== post?.id).map((p) => p.text),
+        ...tasteBody(),
+      });
+      const fresh = toPost(data.post);
+      patchDay(wi, dayIdx, (dp) => ({
+        ...dp,
+        posts: (post ? dp.posts.map((p) => (p.id === post.id ? { ...fresh, time: post.time } : p)) : [...dp.posts, fresh]).sort(byTime),
+      }));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusyPost(null);
+    }
+  };
 
-  // ---------- ТЕСТ ----------
-  if (stage === 'test') {
-    return (
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <span style={{ fontSize: '12px', color: '#888', textTransform: 'uppercase' }}>Тест на архетип</span>
-          <span style={{ fontSize: '12px', color: '#666' }}>{step + 1} / {TEST.length}</span>
-        </div>
-        <div style={{ height: '4px', backgroundColor: '#1a1a1a', borderRadius: '2px', overflow: 'hidden', marginBottom: '18px' }}>
-          <div style={{ height: '100%', width: `${progress}%`, backgroundColor: neonGreen, transition: 'width 0.3s' }}></div>
-        </div>
+  // ---------- лайки ----------
+  const rate = (p: Post, value: 1 | -1) => {
+    const next = p.rating === value ? 0 : value;
+    patchPost(p.id, { rating: next });
+    setTaste((t) => {
+      const liked = t.liked.filter((x) => x !== p.text);
+      const disliked = t.disliked.filter((x) => x !== p.text);
+      if (next === 1) liked.unshift(p.text);
+      if (next === -1) disliked.unshift(p.text);
+      return { liked: liked.slice(0, 20), disliked: disliked.slice(0, 20) };
+    });
+  };
 
-        <div style={{ ...card, marginBottom: '15px' }}>
-          <div style={{ fontSize: '17px', fontWeight: 'bold', lineHeight: '1.4' }}>{q.q}</div>
-        </div>
+  const doCopy = async (text: string, id: string) => {
+    if (await copyText(text)) {
+      setCopied(id);
+      setTimeout(() => setCopied(null), 1500);
+    }
+  };
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {q.options.map((o, i) => (
-            <button key={i} onClick={() => pick(o.a)} style={{ textAlign: 'left', padding: '15px', borderRadius: '12px', border: '1px solid #2a2a2a', backgroundColor: '#0d0d0d', color: '#ddd', fontSize: '13px', lineHeight: '1.4', cursor: 'pointer' }}>
-              {o.label}
-            </button>
-          ))}
-        </div>
+  // ---------- шапка: недели, режимы, дни ----------
+  const range = `${weekMonday.getDate()} ${MONTHS[weekMonday.getMonth()]} – ${addDays(weekMonday, 6).getDate()} ${MONTHS[addDays(weekMonday, 6).getMonth()]}`;
+  const arrow = (enabled: boolean) => ({ background: 'none', border: 'none', color: enabled ? '#ddd' : '#333', fontSize: 22, padding: '4px 14px', cursor: enabled ? 'pointer' : 'default' });
 
-        {step > 0 && (
-          <button onClick={() => setStep(step - 1)} style={{ width: '100%', background: 'none', border: 'none', color: '#444', fontSize: '11px', padding: '14px', cursor: 'pointer' }}>
-            ← Назад
+  const header = (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
+        <button style={arrow(wi > 0)} disabled={wi === 0} onClick={() => setWi(wi - 1)}>‹</button>
+        <span style={{ fontSize: 20, fontWeight: 800, minWidth: 120, textAlign: 'center' }}>
+          {wi === currentWi ? 'Эта неделя' : `Неделя ${wi + 1}`}
+        </span>
+        <button style={arrow(wi < currentWi + 4)} disabled={wi >= currentWi + 4} onClick={() => setWi(wi + 1)}>›</button>
+      </div>
+      <div style={{ textAlign: 'center', fontSize: 12, color: '#666', marginBottom: 14 }}>{range}</div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        {([['feed', 'Лента'], ['scenario', 'Сценарий'], ['media', 'Медиа']] as const).map(([id, name]) => (
+          <button key={id} onClick={() => setMode(id)} style={{ flex: 1, padding: '10px 4px', borderRadius: 20, fontSize: 13, cursor: 'pointer', border: mode === id ? '1px solid #c9915a' : '1px solid #2a2a2a', backgroundColor: mode === id ? '#2a1d12' : '#0d0d0d', color: mode === id ? '#f2c08d' : '#aaa' }}>
+            {name}
           </button>
+        ))}
+      </div>
+    </>
+  );
+
+  const dayStrip = (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5, marginBottom: 14 }}>
+      {DAYS.map((d, i) => {
+        const date = addDays(weekMonday, i);
+        const isToday = date.toDateString() === today.toDateString();
+        const on = i === dayIdx;
+        const has = (week.days[i]?.posts.length || 0) > 0;
+        return (
+          <button key={d} onClick={() => setDayIdx(i)} style={{ padding: '6px 0 8px', borderRadius: 12, cursor: 'pointer', border: on ? '1px solid #bbb' : '1px solid #222', backgroundColor: on ? '#1c1c1c' : '#0b0b0b', color: on ? '#fff' : '#999' }}>
+            <div style={{ fontSize: 11, color: isToday ? neon : '#666', marginBottom: 2 }}>{date.getDate()}</div>
+            <div style={{ fontSize: 14 }}>{d}</div>
+            <div style={{ width: 4, height: 4, borderRadius: 2, margin: '4px auto 0', backgroundColor: has ? neon : 'transparent' }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  if (!planReady) return <Spinner />;
+
+  // ---------- СЦЕНАРИЙ ----------
+  if (mode === 'scenario') {
+    return (
+      <div>
+        {header}
+        <p style={{ ...hint, fontSize: 13 }}>Что происходит у персонажа на этой неделе: события, запуск, настроение. Персонаж вплетёт это в посты.</p>
+        <span style={label}>Сценарий недели</span>
+        <textarea value={week.scenario} maxLength={3000} onChange={(e) => setScenario({ scenario: e.target.value })} rows={6} placeholder="например: в среду переезд, к выходным первая встреча с новым соседом" style={textarea} />
+        <div style={{ textAlign: 'right', fontSize: 11, color: '#555', margin: '4px 0 16px' }}>{week.scenario.length}/3000</div>
+
+        <span style={label}>Запреты</span>
+        <p style={hint}>Что точно не нужно на этой неделе. ИИ исключит это из сюжета и постов.</p>
+        <textarea value={week.bans} maxLength={3000} onChange={(e) => setScenario({ bans: e.target.value })} rows={4} placeholder="например: без поездок и спорта, не упоминать бывшего" style={textarea} />
+        <div style={{ textAlign: 'right', fontSize: 11, color: '#555', margin: '4px 0 16px' }}>{week.bans.length}/3000</div>
+
+        <Btn full disabled={Boolean(gen)} onClick={buildWeek}>
+          {week.days.length ? 'Учесть в постах недели' : 'Собрать план недели'}
+        </Btn>
+        {week.days.length > 0 && (
+          <p style={{ ...hint, textAlign: 'center', marginTop: 10 }}>Посты недели напишутся заново. Те, что ты лайкнула, ИИ запомнил как пример стиля.</p>
         )}
       </div>
     );
   }
 
-  // ---------- ИСТОРИЯ ----------
-  if (stage === 'story' && arche) {
-    const a = ARCHETYPES[arche];
+  // ---------- МЕДИА ----------
+  if (mode === 'media') {
+    const items = week.days.flatMap((dp, i) => dp.posts.filter((p) => p.needsMedia && p.imagePrompt).map((p) => ({ p, d: DAYS[i] })));
     return (
       <div>
-        <div style={{ ...card, border: `1px solid ${neonGreen}40`, marginBottom: '18px', textAlign: 'center', padding: '20px 15px' }}>
-          <div style={{ fontSize: '34px', marginBottom: '6px' }}>{a.emoji}</div>
-          <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Твой архетип</div>
-          <div style={{ fontSize: '20px', fontWeight: 'bold', color: neonGreen, marginBottom: '6px' }}>{a.name}</div>
-          <div style={{ fontSize: '12px', color: '#888' }}>{a.tagline}</div>
-        </div>
-
-        <div style={{ fontSize: '12px', color: '#888', textTransform: 'uppercase', marginBottom: '10px' }}>История персонажа</div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '15px' }}>
-          {[
-            { id: 'have' as const, label: 'У меня уже есть история', sub: 'Расскажу в двух словах' },
-            { id: 'create' as const, label: 'Хочу создать с нуля', sub: 'Придумаем вместе' },
-            { id: 'none' as const, label: 'Без истории', sub: 'Просто лайфстайл-контент' },
-          ].map((m) => (
-            <button key={m.id} onClick={() => setStoryMode(m.id)} style={{ textAlign: 'left', padding: '14px', borderRadius: '12px', border: storyMode === m.id ? `1px solid ${neonGreen}` : '1px solid #2a2a2a', backgroundColor: storyMode === m.id ? '#1e2410' : '#0d0d0d', cursor: 'pointer' }}>
-              <div style={{ fontSize: '14px', fontWeight: 'bold', color: storyMode === m.id ? neonGreen : '#ddd' }}>{m.label}</div>
-              <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>{m.sub}</div>
-            </button>
-          ))}
-        </div>
-
-        {storyMode !== 'none' && (
-          <div style={{ ...card, marginBottom: '15px' }}>
-            <textarea
-              value={storyText}
-              onChange={(e) => setStoryText(e.target.value)}
-              placeholder={storyMode === 'have' ? 'Кто она, откуда, что у неё сейчас происходит...' : 'Какое настроение и сюжет хочешь? Например: переехала в Дубай, снимает квартиру, ищет себя...'}
-              rows={4}
-              style={{ ...inputStyle, resize: 'none', marginBottom: '10px' }}
-            />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {STORY_CHIPS.map((c) => (
-                <button key={c} onClick={() => setStoryText((prev) => (prev ? `${prev}, ${c}` : c))} style={{ padding: '6px 10px', borderRadius: '20px', border: '1px solid #2a2a2a', backgroundColor: '#000', color: '#888', fontSize: '11px', cursor: 'pointer' }}>
-                  + {c}
-                </button>
-              ))}
-            </div>
-          </div>
+        {header}
+        {items.length === 0 ? (
+          <div style={{ ...card, textAlign: 'center', color: '#777', fontSize: 13, padding: 30 }}>Пока нет постов с фото. Сначала собери план в «Ленте».</div>
+        ) : (
+          <>
+            <p style={{ ...hint, fontSize: 13 }}>Все промпты для фото этой недели в одном месте. Сгенерируй их пачкой в Студии.</p>
+            {items.map(({ p, d }) => (
+              <div key={p.id} style={{ ...card, marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{d} · {p.time} · {p.text.slice(0, 50)}{p.text.length > 50 ? '…' : ''}</div>
+                <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.45, marginBottom: 10 }}>{p.imagePrompt}</div>
+                <Btn kind="ghost" small onClick={() => doCopy(p.imagePrompt, 'm' + p.id)}>{copied === 'm' + p.id ? '✓ Скопировано' : 'Копировать промпт'}</Btn>
+              </div>
+            ))}
+            <Btn full onClick={() => doCopy(items.map(({ p, d }) => `${d} ${p.time}\n${p.imagePrompt}`).join('\n\n'), 'allm')}>
+              {copied === 'allm' ? '✓ Все промпты скопированы' : 'Скопировать все промпты'}
+            </Btn>
+          </>
         )}
-
-        <button onClick={() => setStage('setup')} style={{ width: '100%', padding: '16px', borderRadius: '12px', border: 'none', backgroundColor: neonGreen, color: '#000', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>
-          Далее
-        </button>
       </div>
     );
   }
 
-  // ---------- НАСТРОЙКА ----------
-  if (stage === 'setup') {
-    return (
-      <div>
-        <div style={{ ...card, marginBottom: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '2px' }}>Референсы (до 3)</div>
-              <div style={{ fontSize: '10px', color: '#666' }}>ИИ посмотрит на фото и опишет внешность в промптах</div>
-            </div>
-            <button onClick={() => fileRef.current?.click()} style={{ padding: '7px 12px', borderRadius: '8px', border: `1px solid ${neonGreen}50`, backgroundColor: '#1a1a1a', color: neonGreen, fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>+ Фото</button>
-            <input type="file" multiple accept="image/*" ref={fileRef} onChange={addRefs} style={{ display: 'none' }} />
+  // ---------- ЛЕНТА ----------
+  return (
+    <div>
+      {header}
+      {dayStrip}
+
+      {error && <ErrorBox text={error} onRetry={week.days.length ? undefined : buildWeek} />}
+
+      {isGenerating && gen?.phase === 'outline' && <Spinner text="Придумываем сюжет недели…" />}
+      {isGenerating && gen?.phase === 'days' && (
+        <div style={{ ...card, marginBottom: 12, fontSize: 13, color: '#aaa' }}>
+          Пишем посты: {gen.done} из 7 дней
+          <div style={{ height: 4, backgroundColor: '#1a1a1a', borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${(gen.done / 7) * 100}%`, backgroundColor: neon, transition: 'width .3s' }} />
           </div>
-          {refs.length > 0 && (
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {refs.map((r) => (
-                <div key={r.id} style={{ position: 'relative', width: '62px', height: '62px', borderRadius: '10px', overflow: 'hidden', border: '1px solid #2a2a2a' }}>
-                  <img src={r.preview} alt="ref" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <button onClick={() => setRefs(refs.filter((x) => x.id !== r.id))} style={{ position: 'absolute', top: '2px', right: '2px', width: '18px', height: '18px', borderRadius: '50%', border: 'none', backgroundColor: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '10px', cursor: 'pointer' }}>✕</button>
-                </div>
-              ))}
+        </div>
+      )}
+
+      {!week.days.length && !isGenerating && (
+        <div style={{ ...card, textAlign: 'center', padding: '30px 18px' }}>
+          <div style={{ fontSize: 30, marginBottom: 8 }}>🗓</div>
+          <p style={{ fontSize: 14, color: '#aaa', margin: '0 0 18px', lineHeight: 1.5 }}>
+            План на эту неделю ещё не собран.<br />ИИ придумает сюжет и напишет по 2–3 поста на каждый день.
+          </p>
+          <Btn full disabled={Boolean(gen)} onClick={buildWeek}>Собрать план недели</Btn>
+          <button onClick={() => setMode('scenario')} style={{ background: 'none', border: 'none', color: '#777', fontSize: 12, padding: 14, cursor: 'pointer' }}>
+            Сначала добавить события недели →
+          </button>
+        </div>
+      )}
+
+      {week.storyline && (
+        <div style={{ ...card, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#888', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Сюжет недели</div>
+          <div style={{ fontSize: 15 }}>{week.storyline}</div>
+          {day?.beat && (
+            <div style={{ fontSize: 12, color: '#777', marginTop: 8, lineHeight: 1.4 }}>
+              <span style={{ color: GOAL_COLORS[day.goal] }}>● {day.goal}</span> · {day.beat}
             </div>
           )}
         </div>
-
-        <div style={{ ...card, marginBottom: '15px' }}>
-          <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '2px' }}>Готовые сообщения</div>
-          <div style={{ fontSize: '10px', color: '#666', marginBottom: '10px' }}>Вставь 2-3 своих реальных сообщения в личке — план напишется твоим голосом</div>
-          <textarea
-            value={readyMessages}
-            onChange={(e) => setReadyMessages(e.target.value)}
-            placeholder={'Приветик) как прошёл день?\n\nблин, я сегодня вырубилась в 9 вечера 😅\n\nне, серьёзно, ты правда так думаешь?'}
-            rows={5}
-            style={{ ...inputStyle, resize: 'none' }}
-          />
-        </div>
-
-        {error && <div style={{ color: '#ff6b6b', fontSize: '12px', marginBottom: '12px' }}>{error}</div>}
-
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => setStage('story')} style={{ padding: '16px 20px', borderRadius: '12px', border: '1px solid #333', backgroundColor: '#111', color: '#888', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>Назад</button>
-          <button onClick={generate} style={{ flex: 1, padding: '16px', borderRadius: '12px', border: 'none', backgroundColor: neonGreen, color: '#000', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>
-            Собрать контент-план
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------- РЕЗУЛЬТАТ ----------
-  const a = arche ? ARCHETYPES[arche] : null;
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <span style={{ fontSize: '12px', color: '#888', textTransform: 'uppercase' }}>
-          {a ? `${a.emoji} ${a.name}` : 'Контент-план'}
-        </span>
-        <button onClick={reset} style={{ padding: '8px 14px', borderRadius: '10px', border: '1px solid #333', backgroundColor: '#111', color: '#aaa', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>Заново</button>
-      </div>
-
-      {loading && (
-        <div style={{ ...card, textAlign: 'center', padding: '50px 15px' }}>
-          <div style={{ width: '34px', height: '34px', border: '3px solid #222', borderTopColor: neonGreen, borderRadius: '50%', margin: '0 auto 14px', animation: 'spin 1s linear infinite' }}></div>
-          <p style={{ fontSize: '13px', color: '#888', margin: 0 }}>Пишем план на неделю...</p>
-        </div>
       )}
 
-      {error && !loading && (
-        <div style={{ ...card, borderColor: '#5a2020' }}>
-          <p style={{ fontSize: '12px', color: '#ff6b6b', margin: 0 }}>{error}</p>
-        </div>
-      )}
+      {day?.failed && <ErrorBox text="Этот день не получился" onRetry={() => retryDay()} />}
+      {day && !day.failed && day.posts.length === 0 && isGenerating && <Spinner text={`Пишем ${DAYS[dayIdx]}…`} />}
 
-      {!loading && posts && posts.map((p, i) => (
-        <div key={i} style={{ ...card, marginBottom: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '10px', backgroundColor: neonGreen, color: '#000', fontWeight: 'bold', padding: '3px 8px', borderRadius: '6px', textTransform: 'uppercase' }}>{p.day}</span>
-            <span style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase', fontWeight: 'bold' }}>{p.format}</span>
-            <span style={{ fontSize: '10px', color: '#7ea6ff', border: '1px solid #7ea6ff40', borderRadius: '20px', padding: '1px 7px' }}>{p.goal}</span>
-          </div>
-          <div style={{ fontSize: '15px', fontWeight: 'bold', marginBottom: '8px' }}>{p.title}</div>
-          <div style={{ fontSize: '13px', color: '#bbb', lineHeight: '1.5', whiteSpace: 'pre-wrap', marginBottom: '10px' }}>{p.text}</div>
-          <div style={{ fontSize: '12px', color: '#7ea6ff', marginBottom: '10px' }}>{p.hashtags}</div>
-          <div style={{ backgroundColor: '#000', border: '1px solid #222', borderRadius: '10px', padding: '10px', marginBottom: '10px' }}>
-            <div style={{ fontSize: '9px', color: '#555', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Промпт для Студии</div>
-            <div style={{ fontSize: '11px', color: '#888', lineHeight: '1.4' }}>{p.imagePrompt}</div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => copy(postText(p), String(i))} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #333', backgroundColor: '#1a1a1a', color: '#aaa', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
-              {copied === String(i) ? '✓ Скопировано' : 'Копировать'}
-            </button>
-            <button
-              onClick={() => {
-                if (onSendToStudio) { onSendToStudio(p.imagePrompt); alert('Промпт отправлен в Студию'); }
-                else { copy(p.imagePrompt, 'p' + i); }
-              }}
-              style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: '#1e2410', color: neonGreen, fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              {copied === 'p' + i ? '✓ Промпт скопирован' : '→ Промпт в Студию'}
-            </button>
-          </div>
-        </div>
+      {day?.posts.map((p) => (
+        <PostCard
+          key={p.id}
+          p={p}
+          busy={busyPost === p.id}
+          copied={copied}
+          onEdit={(text) => patchPost(p.id, { text })}
+          onRate={(v) => rate(p, v)}
+          onRewrite={() => rewritePost(p)}
+          onDelete={() => patchDay(wi, dayIdx, (dp) => ({ ...dp, posts: dp.posts.filter((x) => x.id !== p.id) }))}
+          onCopy={(t, id) => doCopy(t, id)}
+        />
       ))}
 
-      {!loading && posts && (
-        <button onClick={() => copy(posts.map(postText).join('\n\n———\n\n'), 'all')} style={{ width: '100%', padding: '16px', borderRadius: '12px', border: 'none', backgroundColor: neonGreen, color: '#000', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>
-          {copied === 'all' ? '✓ Всё скопировано' : 'Скопировать весь план'}
-        </button>
+      {day && !isGenerating && !day.failed && (
+        <>
+          <button onClick={() => rewritePost()} disabled={Boolean(busyPost)} style={{ width: '100%', padding: 15, borderRadius: 14, border: '1px dashed #333', background: 'none', color: '#bbb', fontSize: 14, cursor: 'pointer', marginBottom: 10 }}>
+            {busyPost === 'add' ? 'Пишем…' : '+ Добавить пост'}
+          </button>
+          <Btn full kind="ghost" disabled={Boolean(busyPost)} onClick={() => retryDay()}>
+            {busyPost === 'day' ? 'Переписываем день…' : 'Переписать день целиком'}
+          </Btn>
+        </>
       )}
+    </div>
+  );
+}
+
+// ---------- Карточка поста ----------
+function PostCard({
+  p, busy, copied, onEdit, onRate, onRewrite, onDelete, onCopy,
+}: {
+  p: Post; busy: boolean; copied: string | null;
+  onEdit: (text: string) => void; onRate: (v: 1 | -1) => void; onRewrite: () => void; onDelete: () => void;
+  onCopy: (text: string, id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const icon = (on: boolean) => ({ background: 'none', border: 'none', fontSize: 16, padding: '4px 6px', cursor: 'pointer', opacity: on ? 1 : 0.4, filter: on ? 'none' : 'grayscale(1)' });
+
+  return (
+    <div style={{ ...card, marginBottom: 10, opacity: busy ? 0.5 : 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: GOAL_COLORS[p.goal] }} />
+        <span style={{ fontSize: 13, color: '#999' }}>{p.time}</span>
+        <span style={{ fontSize: 10, color: GOAL_COLORS[p.goal], border: `1px solid ${GOAL_COLORS[p.goal]}50`, borderRadius: 20, padding: '1px 8px' }}>{p.goal}</span>
+        <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' }}>{p.format}</span>
+        <button onClick={onDelete} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#444', fontSize: 14, cursor: 'pointer' }}>✕</button>
+      </div>
+
+      {editing ? (
+        <textarea autoFocus value={p.text} onChange={(e) => onEdit(e.target.value)} onBlur={() => setEditing(false)} rows={5} style={{ ...textarea, marginBottom: 8 }} />
+      ) : (
+        <div onClick={() => setEditing(true)} style={{ fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8, cursor: 'text' }}>{busy ? 'Переписываем…' : p.text}</div>
+      )}
+      {p.hashtags && <div style={{ fontSize: 12, color: '#7ea6ff', marginBottom: 8 }}>{p.hashtags}</div>}
+
+      {p.needsMedia && p.imagePrompt && (
+        <div style={{ marginBottom: 8 }}>
+          <button onClick={() => setShowPrompt(!showPrompt)} style={{ background: 'none', border: 'none', color: '#d9945b', fontSize: 12, padding: 0, cursor: 'pointer' }}>
+            📷 Нужно фото {showPrompt ? '▴' : '▾ промпт'}
+          </button>
+          {showPrompt && (
+            <div style={{ backgroundColor: '#000', border: '1px solid #222', borderRadius: 10, padding: 10, marginTop: 6 }}>
+              <div style={{ fontSize: 11, color: '#999', lineHeight: 1.45, marginBottom: 8 }}>{p.imagePrompt}</div>
+              <Chip onClick={() => onCopy(p.imagePrompt, 'p' + p.id)}>{copied === 'p' + p.id ? '✓ Скопировано' : 'Копировать промпт'}</Chip>
+            </div>
+          )}
+        </div>
+      )}
+      {!p.needsMedia && <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>Без фото</div>}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderTop: '1px solid #1c1c1c', paddingTop: 8 }}>
+        <button style={icon(p.rating === 1)} onClick={() => onRate(1)} title="Нравится">👍</button>
+        <button style={icon(p.rating === -1)} onClick={() => onRate(-1)} title="Не нравится">👎</button>
+        <span style={{ flex: 1 }} />
+        <Chip onClick={onRewrite}>↻ Переписать</Chip>
+        <Chip onClick={() => onCopy(postForCopy(p), 'c' + p.id)}>{copied === 'c' + p.id ? '✓' : 'Копировать'}</Chip>
+      </div>
     </div>
   );
 }
