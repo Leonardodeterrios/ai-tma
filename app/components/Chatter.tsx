@@ -90,7 +90,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
           <Btn kind="soft" onClick={createFan}>+ Добавить</Btn>
         </div>
         {fans.length === 0 && (
-          <div style={{ ...card, textAlign: 'center', color: '#777', fontSize: 14, padding: '30px 15px', lineHeight: 1.5 }}>
+          <div style={{ ...card, textAlign: 'center', color: 'var(--muted)', fontSize: 14, padding: '30px 15px', lineHeight: 1.5 }}>
             Пока пусто.<br />Добавь первого, вставь его сообщение, и {persona.name} предложит 3 ответа.
           </div>
         )}
@@ -103,7 +103,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
                   <span style={{ fontWeight: 700, fontSize: 15 }}>{f.name}</span>
                   <span style={{ fontSize: 10, color: neon, border: `1px solid ${neon}50`, borderRadius: 20, padding: '2px 8px' }}>{f.stage}. {T.stages[f.stage]?.short}</span>
                 </div>
-                <p style={{ margin: 0, fontSize: 13, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {last ? `${last.role === 'fan' ? 'Он' : 'Я'}: ${last.text}` : 'нет сообщений'}
                 </p>
               </div>
@@ -113,7 +113,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
                   <Btn kind="ghost" small onClick={() => setConfirmDel(null)}>Нет</Btn>
                 </div>
               ) : (
-                <button onClick={() => setConfirmDel(f.id)} style={{ background: 'none', border: 'none', color: '#444', fontSize: 16, padding: 8, cursor: 'pointer' }}>✕</button>
+                <button onClick={() => setConfirmDel(f.id)} style={{ background: 'none', border: 'none', color: 'var(--faint)', fontSize: 16, padding: 8, cursor: 'pointer' }}>✕</button>
               )}
             </div>
           );
@@ -126,21 +126,21 @@ export default function Chatter({ persona }: { persona: Persona }) {
   const canGenerate = !busy && (msg.trim().length > 0 || fan.history.length > 0);
   return (
     <div>
-      <button onClick={() => open(null)} style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, padding: '0 0 12px', cursor: 'pointer' }}>← Все {T.personPlural}</button>
+      <button onClick={() => open(null)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13, padding: '0 0 12px', cursor: 'pointer' }}>← Все {T.personPlural}</button>
 
       <div style={{ ...card, marginBottom: 12 }}>
-        <input value={fan.name} onChange={(e) => updateFan(fan.id, { name: e.target.value })} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 18, fontWeight: 700, width: '100%', outline: 'none', padding: 0, marginBottom: 12 }} />
+        <input value={fan.name} onChange={(e) => updateFan(fan.id, { name: e.target.value })} style={{ background: 'none', border: 'none', color: 'var(--text)', fontSize: 18, fontWeight: 700, width: '100%', outline: 'none', padding: 0, marginBottom: 12 }} />
         <div style={{ display: 'flex', gap: 5 }}>
           {[1, 2, 3, 4, 5].map((s) => {
             const on = fan.stage === s;
             return (
-              <button key={s} onClick={() => updateFan(fan.id, { stage: s })} style={{ flex: 1, padding: '7px 2px', borderRadius: 8, border: on ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: on ? neonBg : '#0d0d0d', color: on ? neon : '#666', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.25 }}>
+              <button key={s} onClick={() => updateFan(fan.id, { stage: s })} style={{ flex: 1, padding: '7px 2px', borderRadius: 8, border: on ? `1px solid ${neon}` : '1px solid var(--line)', backgroundColor: on ? neonBg : '#0d0d0d', color: on ? neon : '#666', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.25 }}>
                 {s}<br /><span style={{ fontSize: 9, fontWeight: 400 }}>{T.stages[s].short}</span>
               </button>
             );
           })}
         </div>
-        <button onClick={() => setShowNotes(!showNotes)} style={{ background: 'none', border: 'none', color: '#777', fontSize: 12, marginTop: 12, cursor: 'pointer', padding: 0 }}>
+        <button onClick={() => setShowNotes(!showNotes)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, marginTop: 12, cursor: 'pointer', padding: 0 }}>
           {showNotes ? '− Скрыть заметки' : '+ Что я о нём знаю'}
         </button>
         {showNotes && <textarea value={fan.notes} onChange={(e) => updateFan(fan.id, { notes: e.target.value })} placeholder="Работа, хобби, сколько платит, о чём любит говорить…" rows={3} style={{ ...textarea, marginTop: 10 }} />}
@@ -149,7 +149,7 @@ export default function Chatter({ persona }: { persona: Persona }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
         {fan.history.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'fan' ? 'flex-start' : 'flex-end' }}>
-            <div style={{ maxWidth: '85%', padding: '10px 14px', borderRadius: 18, fontSize: 14, lineHeight: 1.4, backgroundColor: m.role === 'fan' ? '#1a1a1a' : neonBg, border: m.role === 'fan' ? '1px solid #222' : `1px solid ${neon}40` }}>
+            <div style={{ maxWidth: '85%', padding: '10px 14px', borderRadius: 18, fontSize: 14, lineHeight: 1.4, backgroundColor: m.role === 'fan' ? '#1a1a1a' : neonBg, border: m.role === 'fan' ? '1px solid var(--line)' : `1px solid ${neon}40` }}>
               {m.text}
             </div>
           </div>
@@ -163,9 +163,9 @@ export default function Chatter({ persona }: { persona: Persona }) {
         <div style={{ marginBottom: 14 }}>
           {replies.map((r, i) => (
             <div key={i} style={{ ...card, border: `1px solid ${neon}40`, marginBottom: 8 }}>
-              <div style={{ fontSize: 10, color: '#777', textTransform: 'uppercase', marginBottom: 6 }}>{T.replyLabels[i] || 'Вариант'}</div>
+              <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6 }}>{T.replyLabels[i] || 'Вариант'}</div>
               <p style={{ margin: '0 0 4px', fontSize: 15, lineHeight: 1.45 }}>{r.text}</p>
-              {r.translation && <p style={{ margin: '0 0 8px', fontSize: 12, color: '#777', lineHeight: 1.4 }}>{r.translation}</p>}
+              {r.translation && <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>{r.translation}</p>}
               <Btn full small onClick={() => useReply(r)} style={{ marginTop: 6 }}>Копировать и сохранить</Btn>
             </div>
           ))}

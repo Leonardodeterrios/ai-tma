@@ -77,7 +77,7 @@ export default function Assistant({ persona }: { persona: Persona }) {
       {log.length === 0 && (
         <div style={{ ...card, textAlign: 'center', padding: '28px 15px', marginBottom: 14 }}>
           <div style={{ fontSize: 32 }}>🤖</div>
-          <p style={{ fontSize: 14, color: '#aaa', margin: '10px 0 0', lineHeight: 1.5 }}>
+          <p style={{ fontSize: 14, color: '#b4b4bc', margin: '10px 0 0', lineHeight: 1.5 }}>
             Твой помощник. {self ? `Знает твой блог, аудиторию и сюжет недели.` : `Знает ${persona.name}, её характер и сюжет недели.`}<br />Спроси что угодно или нажми кнопку ниже.
           </p>
         </div>
@@ -89,12 +89,12 @@ export default function Assistant({ persona }: { persona: Persona }) {
             <div style={{
               padding: '11px 15px', borderRadius: 18, fontSize: 14, lineHeight: 1.45, whiteSpace: 'pre-wrap',
               backgroundColor: m.role === 'user' ? '#1a1a1a' : neonBg,
-              border: m.role === 'user' ? '1px solid #222' : `1px solid ${neon}30`,
+              border: m.role === 'user' ? '1px solid var(--line)' : `1px solid ${neon}30`,
             }}>
               {m.text}
             </div>
             {m.role === 'assistant' && (
-              <button onClick={async () => { if (await copyText(m.text)) { setCopied(i); setTimeout(() => setCopied(null), 1500); } }} style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, padding: '4px 8px', cursor: 'pointer' }}>
+              <button onClick={async () => { if (await copyText(m.text)) { setCopied(i); setTimeout(() => setCopied(null), 1500); } }} style={{ background: 'none', border: 'none', color: 'var(--faint)', fontSize: 11, padding: '4px 8px', cursor: 'pointer' }}>
                 {copied === i ? '✓ скопировано' : 'копировать'}
               </button>
             )}
@@ -108,7 +108,7 @@ export default function Assistant({ persona }: { persona: Persona }) {
 
       <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 6 }}>
         {quick.map((q) => (
-          <button key={q.label} onClick={() => setText(q.text)} style={{ padding: '8px 12px', borderRadius: 20, border: '1px solid #2a2a2a', backgroundColor: '#0d0d0d', color: '#aaa', fontSize: 12, whiteSpace: 'nowrap', cursor: 'pointer' }}>
+          <button key={q.label} onClick={() => setText(q.text)} style={{ padding: '8px 12px', borderRadius: 20, border: '1px solid var(--line)', backgroundColor: 'var(--surface)', color: '#b4b4bc', fontSize: 12, whiteSpace: 'nowrap', cursor: 'pointer' }}>
             {q.label}
           </button>
         ))}
@@ -117,7 +117,7 @@ export default function Assistant({ persona }: { persona: Persona }) {
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="Спроси помощника…" style={{ ...textarea, marginBottom: 10 }} />
       <Btn full disabled={busy || !text.trim()} onClick={send}>{busy ? 'Думает…' : 'Отправить'}</Btn>
       {log.length > 0 && (
-        <button onClick={() => { setLog([]); setError(''); }} style={{ width: '100%', background: 'none', border: 'none', color: '#555', fontSize: 12, padding: 14, cursor: 'pointer' }}>
+        <button onClick={() => { setLog([]); setError(''); }} style={{ width: '100%', background: 'none', border: 'none', color: 'var(--faint)', fontSize: 12, padding: 14, cursor: 'pointer' }}>
           Начать новый разговор
         </button>
       )}

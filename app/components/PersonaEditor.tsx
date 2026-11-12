@@ -118,11 +118,11 @@ export default function PersonaEditor({
 
       <div style={{ marginTop: 28, textAlign: 'center' }}>
         {!confirmDelete ? (
-          <button onClick={() => setConfirmDelete(true)} style={{ background: 'none', border: 'none', color: '#444', fontSize: 12, cursor: 'pointer', padding: 10 }}>
+          <button onClick={() => setConfirmDelete(true)} style={{ background: 'none', border: 'none', color: 'var(--faint)', fontSize: 12, cursor: 'pointer', padding: 10 }}>
             Удалить проект (вместе с планом и перепиской)
           </button>
         ) : (
-          <div style={{ ...card, borderColor: '#5a2020' }}>
+          <div style={{ ...card, borderColor: 'rgba(255,107,107,0.35)' }}>
             <p style={{ fontSize: 13, color: '#ff6b6b', margin: '0 0 12px' }}>Точно удалить «{persona.name}»? Вернуть не получится.</p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
               <Btn kind="ghost" small onClick={() => setConfirmDelete(false)}>Нет</Btn>

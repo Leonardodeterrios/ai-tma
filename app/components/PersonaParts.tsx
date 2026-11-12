@@ -25,9 +25,9 @@ export function ArchetypeTest({ onDone, onCancel }: { onDone: (a: Arche) => void
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
         <span style={label}>Тест на архетип</span>
-        <span style={{ fontSize: 12, color: '#666' }}>{step + 1} / {TEST.length}</span>
+        <span style={{ fontSize: 12, color: 'var(--faint)' }}>{step + 1} / {TEST.length}</span>
       </div>
-      <div style={{ height: 4, backgroundColor: '#1a1a1a', borderRadius: 2, overflow: 'hidden', marginBottom: 18 }}>
+      <div style={{ height: 4, backgroundColor: 'var(--raised)', borderRadius: 2, overflow: 'hidden', marginBottom: 18 }}>
         <div style={{ height: '100%', width: `${((step + 1) / TEST.length) * 100}%`, backgroundColor: neon, transition: 'width .3s' }} />
       </div>
       <div style={{ ...card, marginBottom: 14 }}>
@@ -35,7 +35,7 @@ export function ArchetypeTest({ onDone, onCancel }: { onDone: (a: Arche) => void
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {q.options.map((o) => (
-          <button key={o.label} onClick={() => pick(o.a)} style={{ textAlign: 'left', padding: 15, borderRadius: 12, border: '1px solid #2a2a2a', backgroundColor: '#0d0d0d', color: '#ddd', fontSize: 14, lineHeight: 1.4, cursor: 'pointer' }}>
+          <button key={o.label} onClick={() => pick(o.a)} style={{ textAlign: 'left', padding: 15, borderRadius: 12, border: '1px solid var(--line)', backgroundColor: 'var(--surface)', color: 'var(--text)', fontSize: 14, lineHeight: 1.4, cursor: 'pointer' }}>
             {o.label}
           </button>
         ))}
@@ -48,7 +48,7 @@ export function ArchetypeTest({ onDone, onCancel }: { onDone: (a: Arche) => void
   );
 }
 
-const linkBtn = { background: 'none', border: 'none', color: '#555', fontSize: 12, padding: 12, cursor: 'pointer' } as const;
+const linkBtn = { background: 'none', border: 'none', color: 'var(--faint)', fontSize: 12, padding: 12, cursor: 'pointer' } as const;
 
 // ---------- Карточка архетипа ----------
 export function ArchetypeCard({ a }: { a: Arche }) {
@@ -56,9 +56,9 @@ export function ArchetypeCard({ a }: { a: Arche }) {
   return (
     <div style={{ ...card, border: `1px solid ${neon}40`, textAlign: 'center', padding: '18px 15px' }}>
       <div style={{ fontSize: 32, marginBottom: 4 }}>{x.emoji}</div>
-      <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Архетип</div>
+      <div style={{ fontSize: 11, color: 'var(--faint)', marginBottom: 2 }}>Архетип</div>
       <div style={{ fontSize: 20, fontWeight: 700, color: neon, marginBottom: 4 }}>{x.name}</div>
-      <div style={{ fontSize: 12, color: '#888' }}>{x.tagline}</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{x.tagline}</div>
     </div>
   );
 }
@@ -76,9 +76,9 @@ export function StoryFields({ p, set }: { p: Persona; set: (patch: Partial<Perso
         {modes.map((m) => {
           const on = p.storyMode === m.id;
           return (
-            <button key={m.id} onClick={() => set({ storyMode: m.id })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, border: on ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: on ? neonBg : '#0d0d0d', cursor: 'pointer' }}>
+            <button key={m.id} onClick={() => set({ storyMode: m.id })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, border: on ? `1px solid ${neon}` : '1px solid var(--line)', backgroundColor: on ? neonBg : '#0d0d0d', cursor: 'pointer' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: on ? neon : '#ddd' }}>{m.title}</div>
-              <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>{m.sub}</div>
+              <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 2 }}>{m.sub}</div>
             </button>
           );
         })}
@@ -94,7 +94,7 @@ export function StoryFields({ p, set }: { p: Persona; set: (patch: Partial<Perso
           />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {STORY_CHIPS.map((c) => (
-              <button key={c} onClick={() => set({ story: p.story ? `${p.story}, ${c}` : c })} style={{ padding: '6px 10px', borderRadius: 20, border: '1px solid #2a2a2a', backgroundColor: '#000', color: '#888', fontSize: 11, cursor: 'pointer' }}>
+              <button key={c} onClick={() => set({ story: p.story ? `${p.story}, ${c}` : c })} style={{ padding: '6px 10px', borderRadius: 20, border: '1px solid var(--line)', backgroundColor: 'rgba(0,0,0,0.35)', color: 'var(--muted)', fontSize: 11, cursor: 'pointer' }}>
                 + {c}
               </button>
             ))}
@@ -136,10 +136,10 @@ export function PhotoRefs({ refs, onChange }: { refs: string[]; onChange: (refs:
       {refs.length > 0 && (
         <div style={{ display: 'flex', gap: 8 }}>
           {refs.map((r, i) => (
-            <div key={i} style={{ position: 'relative', width: 64, height: 64, borderRadius: 10, overflow: 'hidden', border: '1px solid #2a2a2a' }}>
+            <div key={i} style={{ position: 'relative', width: 64, height: 64, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={r} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              <button onClick={() => onChange(refs.filter((_, j) => j !== i))} style={{ position: 'absolute', top: 2, right: 2, width: 20, height: 20, borderRadius: '50%', border: 'none', backgroundColor: 'rgba(0,0,0,.7)', color: '#fff', fontSize: 11, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => onChange(refs.filter((_, j) => j !== i))} style={{ position: 'absolute', top: 2, right: 2, width: 20, height: 20, borderRadius: '50%', border: 'none', backgroundColor: 'rgba(0,0,0,.7)', color: 'var(--text)', fontSize: 11, cursor: 'pointer' }}>✕</button>
             </div>
           ))}
         </div>
@@ -169,7 +169,7 @@ export function MultiChips({ options, value, onChange }: { options: string[]; va
 type SetP = (patch: Partial<Persona>) => void;
 type Scan = { niche: string; audience: string; offer: string; proof: string; about: string };
 
-const smallChip = { padding: '6px 10px', borderRadius: 20, border: '1px solid #2a2a2a', backgroundColor: '#000', color: '#888', fontSize: 11, cursor: 'pointer' } as const;
+const smallChip = { padding: '6px 10px', borderRadius: 20, border: '1px solid var(--line)', backgroundColor: 'rgba(0,0,0,0.35)', color: 'var(--muted)', fontSize: 11, cursor: 'pointer' } as const;
 
 /** Шаг 1: кто ты, сайт, инстаграм, ниша, аудитория */
 export function SelfBrandFields({ p, set }: { p: Persona; set: SetP }) {
@@ -250,9 +250,9 @@ export function SelfGoalFields({ p, set }: { p: Persona; set: SetP }) {
             {[1, 2, 3].map((lvl) => {
               const on = p.salesLevel === lvl;
               return (
-                <button key={lvl} onClick={() => set({ salesLevel: lvl })} style={{ flex: 1, padding: '10px 6px', borderRadius: 12, cursor: 'pointer', textAlign: 'center', border: on ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: on ? neonBg : '#0d0d0d' }}>
+                <button key={lvl} onClick={() => set({ salesLevel: lvl })} style={{ flex: 1, padding: '10px 6px', borderRadius: 12, cursor: 'pointer', textAlign: 'center', border: on ? `1px solid ${neon}` : '1px solid var(--line)', backgroundColor: on ? neonBg : '#0d0d0d' }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: on ? neon : '#ddd' }}>{SALES_LEVELS[lvl].title}</div>
-                  <div style={{ fontSize: 10, color: '#777', marginTop: 3, lineHeight: 1.3 }}>{SALES_LEVELS[lvl].sub}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3, lineHeight: 1.3 }}>{SALES_LEVELS[lvl].sub}</div>
                 </button>
               );
             })}
@@ -287,9 +287,9 @@ export function SelfPlatformFields({ p, set }: { p: Persona; set: SetP }) {
         <>
           <span style={{ ...label, marginTop: 16 }}>Что развиваем</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button onClick={() => set({ focus: 'all' })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, cursor: 'pointer', border: p.focus === 'all' ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: p.focus === 'all' ? neonBg : '#0d0d0d' }}>
+            <button onClick={() => set({ focus: 'all' })} style={{ textAlign: 'left', padding: 14, borderRadius: 12, cursor: 'pointer', border: p.focus === 'all' ? `1px solid ${neon}` : '1px solid var(--line)', backgroundColor: p.focus === 'all' ? neonBg : '#0d0d0d' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: p.focus === 'all' ? neon : '#ddd' }}>Всё вместе, как воронку</div>
-              <div style={{ fontSize: 11, color: '#777', marginTop: 3, lineHeight: 1.4 }}>{model ? 'Каждый день посты для каждой площадки. Threads и Instagram знакомят с ней, в Telegram к ней привыкают, Fanvue и OnlyFans продают.' : 'Каждый день посты для каждой площадки. Threads и Instagram дают охват, Telegram прогревает, дальше продукт.'}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{model ? 'Каждый день посты для каждой площадки. Threads и Instagram знакомят с ней, в Telegram к ней привыкают, Fanvue и OnlyFans продают.' : 'Каждый день посты для каждой площадки. Threads и Instagram дают охват, Telegram прогревает, дальше продукт.'}</div>
             </button>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {p.platforms.map((x) => <Chip key={x} active={p.focus === x} onClick={() => set({ focus: x })}>Только {x}</Chip>)}
@@ -332,9 +332,9 @@ export function LanguageFields({ p, set }: { p: Persona; set: SetP }) {
         {LANGUAGE_OPTIONS.map((o) => {
           const on = p.languageMode === o.id;
           return (
-            <button key={o.id} onClick={() => set({ languageMode: o.id })} style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 12, cursor: 'pointer', border: on ? `1px solid ${neon}` : '1px solid #2a2a2a', backgroundColor: on ? neonBg : '#0d0d0d' }}>
+            <button key={o.id} onClick={() => set({ languageMode: o.id })} style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 12, cursor: 'pointer', border: on ? `1px solid ${neon}` : '1px solid var(--line)', backgroundColor: on ? neonBg : '#0d0d0d' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: on ? neon : '#ddd' }}>{o.label}</div>
-              <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>{o.sub}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{o.sub}</div>
             </button>
           );
         })}

@@ -25,7 +25,7 @@ export default function Onboarding({ kind, onFinish, onCancel }: { kind: Kind; o
       <div style={{ paddingTop: 20, textAlign: 'center' }}>
         <div style={{ fontSize: 50, marginBottom: 8 }}>{KINDS[kind].emoji}</div>
         <h1 style={{ fontSize: 24, fontWeight: 900, margin: '0 0 10px' }}>{self ? 'Расскажи о своём блоге' : 'Создай персонажа модели'}</h1>
-        <p style={{ fontSize: 14, color: '#888', lineHeight: 1.5, margin: '0 0 24px' }}>
+        <p style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.5, margin: '0 0 24px' }}>
           {self
             ? 'Пара минут, и контент-план, ответы подписчикам и помощник будут писать твоим голосом и вести к твоему продукту.'
             : 'Это займёт 2 минуты. Дальше контент-план, ответы фанатам и помощник будут знать её характер и голос.'}
@@ -33,19 +33,19 @@ export default function Onboarding({ kind, onFinish, onCancel }: { kind: Kind; o
         <div style={{ ...card, textAlign: 'left', marginBottom: 22 }}>
           {STEPS[kind].map((t, i) => (
             <div key={t} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '7px 0' }}>
-              <span style={{ width: 24, height: 24, borderRadius: '50%', backgroundColor: '#1a1a1a', color: neon, fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
-              <span style={{ fontSize: 14, color: '#ccc' }}>{t}</span>
+              <span style={{ width: 24, height: 24, borderRadius: '50%', backgroundColor: 'var(--raised)', color: neon, fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+              <span style={{ fontSize: 14, color: '#d4d4d8' }}>{t}</span>
             </div>
           ))}
         </div>
         <Btn full onClick={() => setStep(self ? 'brand' : 'test')}>Начать</Btn>
         {!self && (
-          <button onClick={() => onFinish({ ...DEMO_PERSONA, id: newId() })} style={{ background: 'none', border: 'none', color: '#666', fontSize: 13, padding: '16px 16px 0', cursor: 'pointer' }}>
+          <button onClick={() => onFinish({ ...DEMO_PERSONA, id: newId() })} style={{ background: 'none', border: 'none', color: 'var(--faint)', fontSize: 13, padding: '16px 16px 0', cursor: 'pointer' }}>
             Попробовать на готовой Мие →
           </button>
         )}
         <div>
-          <button onClick={onCancel} style={{ background: 'none', border: 'none', color: '#555', fontSize: 13, padding: 16, cursor: 'pointer' }}>← Назад</button>
+          <button onClick={onCancel} style={{ background: 'none', border: 'none', color: 'var(--faint)', fontSize: 13, padding: 16, cursor: 'pointer' }}>← Назад</button>
         </div>
       </div>
     );

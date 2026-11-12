@@ -119,7 +119,7 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
   };
 
   const bar = (value: number, goal: number, color: string) => (
-    <div style={{ height: 8, backgroundColor: '#1a1a1a', borderRadius: 4, overflow: 'hidden', marginTop: 6 }}>
+    <div style={{ height: 8, backgroundColor: 'var(--raised)', borderRadius: 4, overflow: 'hidden', marginTop: 6 }}>
       <div style={{ height: '100%', width: `${Math.min(100, goal ? (value / goal) * 100 : 0)}%`, backgroundColor: color, transition: 'width .4s' }} />
     </div>
   );
@@ -134,7 +134,7 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
       <div style={{ ...card, marginBottom: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <span style={{ ...label, margin: 0 }}>🎯 Мои цели</span>
-          <button onClick={() => setEditingGoals(!editingGoals)} style={{ background: 'none', border: 'none', color: '#888', fontSize: 12, cursor: 'pointer' }}>
+          <button onClick={() => setEditingGoals(!editingGoals)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer' }}>
             {editingGoals ? (hasGoals ? 'Готово' : '') : 'Изменить'}
           </button>
         </div>
@@ -160,7 +160,7 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                   <span>Подписчики</span>
-                  <span style={{ color: '#aaa' }}>{fmt(lastFollowers)} / {fmt(goalF)} · <b style={{ color: neon }}>{Math.round((lastFollowers / goalF) * 100)}%</b></span>
+                  <span style={{ color: '#b4b4bc' }}>{fmt(lastFollowers)} / {fmt(goalF)} · <b style={{ color: neon }}>{Math.round((lastFollowers / goalF) * 100)}%</b></span>
                 </div>
                 {bar(lastFollowers, goalF, neon)}
               </div>
@@ -169,12 +169,12 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
               <div style={{ marginBottom: 6 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                   <span>Доход за 4 недели</span>
-                  <span style={{ color: '#aaa' }}>{fmt(revenue4w)} / {fmt(goalR)} ₽ · <b style={{ color: '#ffb35c' }}>{Math.round((revenue4w / goalR) * 100)}%</b></span>
+                  <span style={{ color: '#b4b4bc' }}>{fmt(revenue4w)} / {fmt(goalR)} ₽ · <b style={{ color: '#ffb35c' }}>{Math.round((revenue4w / goalR) * 100)}%</b></span>
                 </div>
                 {bar(revenue4w, goalR, '#ffb35c')}
               </div>
             )}
-            {persona.goalDeadline && <div style={{ fontSize: 12, color: '#777', marginTop: 10 }}>До срока: {weeksLeft} нед.</div>}
+            {persona.goalDeadline && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>До срока: {weeksLeft} нед.</div>}
           </>
         )}
       </div>
@@ -185,9 +185,9 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 90, marginTop: 8 }}>
             {chart.map((c) => (
               <div key={c.k} style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 9, color: '#888', marginBottom: 2 }}>{c.v ? fmt(c.v) : ''}</div>
+                <div style={{ fontSize: 9, color: 'var(--muted)', marginBottom: 2 }}>{c.v ? fmt(c.v) : ''}</div>
                 <div style={{ height: Math.max(3, (c.v / chartMax) * 64), backgroundColor: c.k === thisKey ? neon : '#3a4a1a', borderRadius: 4 }} />
-                <div style={{ fontSize: 9, color: '#666', marginTop: 4 }}>{dateLabel(c.k)}</div>
+                <div style={{ fontSize: 9, color: 'var(--faint)', marginTop: 4 }}>{dateLabel(c.k)}</div>
               </div>
             ))}
           </div>
@@ -204,7 +204,7 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
               <span style={label}>✅ Отчёт по прошлой неделе</span>
               <p style={hint}>Отметь каждую рекомендацию. Если не получилось, напиши почему: стратегия это учтёт.</p>
               {prevRecs.map((r, i) => (
-                <div key={i} style={{ padding: '10px 0', borderTop: i ? '1px solid #1c1c1c' : 'none' }}>
+                <div key={i} style={{ padding: '10px 0', borderTop: i ? '1px solid var(--line)' : 'none' }}>
                   <div style={{ fontSize: 14, lineHeight: 1.4, marginBottom: 8 }}>{r.text}</div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <ChoiceBtn on={review[i].done === true} color={neon} onClick={() => setReview(i, { done: true })}>✓ Выполнила</ChoiceBtn>
@@ -265,7 +265,7 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
 
 function ChoiceBtn({ on, color, onClick, children }: { on: boolean; color: string; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} style={{ flex: 1, padding: '8px 6px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: on ? `1px solid ${color}` : '1px solid #2a2a2a', backgroundColor: on ? '#151515' : '#0b0b0b', color: on ? color : '#777' }}>
+    <button onClick={onClick} style={{ flex: 1, padding: '8px 6px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: on ? `1px solid ${color}` : '1px solid var(--line)', backgroundColor: on ? '#151515' : '#0b0b0b', color: on ? color : '#777' }}>
       {children}
     </button>
   );
@@ -279,13 +279,13 @@ function StrategyCard({ s, applied, onApply, onEdit }: { s: Strategy; applied: b
         <div style={{ ...card, marginBottom: 12 }}>
           <span style={label}>🔢 Цифры недели</span>
           {s.math.map((line, i) => (
-            <div key={i} style={{ fontSize: 13, color: '#ccc', lineHeight: 1.45, padding: '3px 0' }}>{line}</div>
+            <div key={i} style={{ fontSize: 13, color: '#d4d4d8', lineHeight: 1.45, padding: '3px 0' }}>{line}</div>
           ))}
         </div>
       )}
       <div style={{ ...card, marginBottom: 12, border: `1px solid ${neon}40` }}>
         <span style={label}>🧭 Стратегия на следующую неделю</span>
-        <p style={{ fontSize: 14, lineHeight: 1.5, margin: '0 0 10px', color: '#ddd' }}>{s.summary}</p>
+        <p style={{ fontSize: 14, lineHeight: 1.5, margin: '0 0 10px', color: 'var(--text)' }}>{s.summary}</p>
         <div style={{ fontSize: 13, color: '#ffb35c', marginBottom: 10 }}>{s.verdict}</div>
         <div style={{ fontSize: 14, fontWeight: 700, color: neon, backgroundColor: neonBg, borderRadius: 10, padding: '10px 12px' }}>Фокус: {s.focus}</div>
       </div>
@@ -293,20 +293,20 @@ function StrategyCard({ s, applied, onApply, onEdit }: { s: Strategy; applied: b
       <div style={{ ...card, marginBottom: 12 }}>
         <span style={label}>Что делаем</span>
         {s.recommendations.map((r, i) => (
-          <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 0', borderTop: i ? '1px solid #1c1c1c' : 'none' }}>
+          <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 0', borderTop: i ? '1px solid var(--line)' : 'none' }}>
             <span style={{ color: neon, fontWeight: 800, fontSize: 14 }}>{i + 1}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              {r.platform && <span style={{ fontSize: 10, color: '#999', border: '1px solid #333', borderRadius: 6, padding: '1px 6px' }}>{r.platform}</span>}
+              {r.platform && <span style={{ fontSize: 10, color: 'var(--muted)', border: '1px solid var(--line-strong)', borderRadius: 6, padding: '1px 6px' }}>{r.platform}</span>}
               <div style={{ fontSize: 14, lineHeight: 1.4, marginTop: r.platform ? 5 : 0 }}>{r.text}</div>
               {r.example && (
-                <div style={{ fontSize: 13, color: '#e8e8e8', backgroundColor: '#0b0b0b', border: '1px solid #222', borderRadius: 10, padding: '8px 10px', marginTop: 6, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+                <div style={{ fontSize: 13, color: 'var(--text)', backgroundColor: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 10px', marginTop: 6, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
                   {r.example}
-                  <button onClick={async () => { if (await copyText(r.example || '')) { setCopied(i); setTimeout(() => setCopied(null), 1500); } }} style={{ display: 'block', background: 'none', border: 'none', color: '#666', fontSize: 11, padding: '6px 0 0', cursor: 'pointer' }}>
+                  <button onClick={async () => { if (await copyText(r.example || '')) { setCopied(i); setTimeout(() => setCopied(null), 1500); } }} style={{ display: 'block', background: 'none', border: 'none', color: 'var(--faint)', fontSize: 11, padding: '6px 0 0', cursor: 'pointer' }}>
                     {copied === i ? '✓ скопировано' : 'копировать'}
                   </button>
                 </div>
               )}
-              <div style={{ fontSize: 12, color: '#777', marginTop: 5, lineHeight: 1.35 }}>{r.why}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5, lineHeight: 1.35 }}>{r.why}</div>
             </div>
           </div>
         ))}

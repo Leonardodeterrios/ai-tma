@@ -54,7 +54,7 @@ export default function AccountAnalysis({
     items.length > 0 && (
       <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 4 }}>{title}</div>
-        {items.map((t, i) => <div key={i} style={{ fontSize: 13, color: '#ddd', lineHeight: 1.45, padding: '2px 0' }}>• {t}</div>)}
+        {items.map((t, i) => <div key={i} style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.45, padding: '2px 0' }}>• {t}</div>)}
       </div>
     );
 
@@ -76,14 +76,14 @@ export default function AccountAnalysis({
           </p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
             {images.map((src, i) => (
-              <div key={i} style={{ position: 'relative', width: 64, height: 90, borderRadius: 10, overflow: 'hidden', border: '1px solid #2a2a2a' }}>
+              <div key={i} style={{ position: 'relative', width: 64, height: 90, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)' }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                <button onClick={() => setImages(images.filter((_, j) => j !== i))} style={{ position: 'absolute', top: 2, right: 2, width: 20, height: 20, borderRadius: '50%', border: 'none', backgroundColor: 'rgba(0,0,0,.7)', color: '#fff', fontSize: 11, cursor: 'pointer' }}>✕</button>
+                <button onClick={() => setImages(images.filter((_, j) => j !== i))} style={{ position: 'absolute', top: 2, right: 2, width: 20, height: 20, borderRadius: '50%', border: 'none', backgroundColor: 'rgba(0,0,0,.7)', color: 'var(--text)', fontSize: 11, cursor: 'pointer' }}>✕</button>
               </div>
             ))}
             {images.length < MAX && (
-              <button onClick={() => fileRef.current?.click()} style={{ width: 64, height: 90, borderRadius: 10, border: '1px dashed #444', background: 'none', color: '#888', fontSize: 22, cursor: 'pointer' }}>+</button>
+              <button onClick={() => fileRef.current?.click()} style={{ width: 64, height: 90, borderRadius: 10, border: '1px dashed var(--line-strong)', background: 'none', color: 'var(--muted)', fontSize: 22, cursor: 'pointer' }}>+</button>
             )}
             <input type="file" multiple accept="image/*" ref={fileRef} onChange={add} style={{ display: 'none' }} />
           </div>
@@ -105,8 +105,8 @@ export default function AccountAnalysis({
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#7ea6ff', marginBottom: 4 }}>Что повторить</div>
               {analysis.ideas.map((x, i) => (
-                <div key={i} style={{ fontSize: 13, color: '#ddd', lineHeight: 1.45, padding: '4px 0' }}>
-                  {x.platform && <span style={{ fontSize: 10, color: '#999', border: '1px solid #333', borderRadius: 6, padding: '1px 6px', marginRight: 6 }}>{x.platform}</span>}
+                <div key={i} style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.45, padding: '4px 0' }}>
+                  {x.platform && <span style={{ fontSize: 10, color: 'var(--muted)', border: '1px solid var(--line-strong)', borderRadius: 6, padding: '1px 6px', marginRight: 6 }}>{x.platform}</span>}
                   {x.text}
                 </div>
               ))}
