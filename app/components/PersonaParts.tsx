@@ -210,7 +210,7 @@ export function SelfBrandFields({ p, set }: { p: Persona; set: SetP }) {
 
       <span style={label}>Instagram (если есть)</span>
       <input value={p.instagram} onChange={(e) => set({ instagram: e.target.value.trim() })} placeholder="instagram.com/твой_ник" style={{ ...input, marginBottom: 6 }} />
-      <p style={{ ...hint, marginBottom: 14 }}>Instagram закрыт для ботов, поэтому лучше скопируй 2–3 лучших подписи в шаге «Голос».</p>
+      <p style={{ ...hint, marginBottom: 14 }}>Напрямую к Instagram приложение не подключается. Зато во вкладке «Рост» можно загрузить скриншоты статистики, и ИИ их разберёт.</p>
 
       <span style={label}>О чём твой блог</span>
       <textarea value={p.niche} onChange={(e) => set({ niche: e.target.value })} rows={2} placeholder="например: учу создавать ИИ-моделей и зарабатывать на них" style={{ ...textarea, marginBottom: 14 }} />

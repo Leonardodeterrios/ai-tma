@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import {
   EMPTY_METRICS, METRIC_FIELDS,
-  type CheckIn, type GrowthStore, type Metrics, type Persona, type PlanStore, type ReviewItem, type Strategy, type Taste,
+  type Analysis, type CheckIn, type GrowthStore, type Metrics, type Persona, type PlanStore, type ReviewItem, type Strategy, type Taste,
 } from '../lib/persona';
 import { addDays, copyText, errorText, mondayOf, postJSON } from '../lib/client';
 import { projectKeys, readStored, useStored, writeStored } from '../lib/storage';
+import AccountAnalysis from './AccountAnalysis';
 import { Btn, ErrorBox, Spinner, card, hint, input, label, neon, neonBg } from './ui';
 
 const DAY_MS = 86_400_000;
@@ -46,6 +47,18 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
     setStore((s) => ({ ...s, weeks: { ...s.weeks, [thisKey]: { ...emptyCheckIn(), ...s.weeks[thisKey], ...patch } } }));
   const setMetric = (k: keyof Metrics, v: string) => patchWeek({ metrics: { ...current.metrics, [k]: v } });
   const setReview = (i: number, patch: Partial<ReviewItem>) => patchWeek({ review: review.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+
+  /** Результат разбора скриншотов: запоминаем, подставляем найденные цифры в пустые поля недели */
+  const onAnalysis = (a: Analysis) => {
+    const metrics = { ...current.metrics };
+    METRIC_FIELDS.forEach((f) => {
+      const v = String(a.metrics?.[f.key] || '').replace(/[^\d]/g, '');
+      if (v && !metrics[f.key]) metrics[f.key] = v;
+    });
+    setStore((s) => ({ ...s, analysis: a, weeks: { ...s.weeks, [thisKey]: { ...emptyCheckIn(), ...s.weeks[thisKey], metrics } } }));
+    if (a.insights) onPatch({ insights: a.insights });
+    if (current.strategy) setEditingWeek(true); // цифры обновились — предложим пересобрать стратегию
+  };
 
   // ---------- прогресс к цели ----------
   const filled = allKeys.filter((k) => k <= thisKey && store.weeks[k]?.metrics);
@@ -180,6 +193,8 @@ export default function Growth({ persona, onPatch }: { persona: Persona; onPatch
           </div>
         </div>
       )}
+
+      <AccountAnalysis persona={persona} analysis={store.analysis} onResult={onAnalysis} />
 
       {/* ---------- НЕДЕЛЯ ---------- */}
       {showForm ? (

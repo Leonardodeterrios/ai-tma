@@ -2,7 +2,7 @@
 // Вкладка «План»: календарь недели, посты по дням, сценарий и медиа.
 import { useEffect, useMemo, useState } from 'react';
 import {
-  DAYS, GOALS, GOAL_COLORS, MEDIA_ICONS, MEDIA_TYPES, PLATFORM_COLORS, VIDEO_MEDIA, newId,
+  DAYS, GOALS, GOAL_COLORS, INTENT_CHIPS, MEDIA_ICONS, MEDIA_TYPES, PLATFORM_COLORS, VIDEO_MEDIA, newId,
   type DayPlan, type Goal, type MediaType, type Persona, type PlanStore, type Post, type Taste, type Week,
 } from '../lib/persona';
 import { addDays, copyText, errorText, mondayOf, postJSON } from '../lib/client';
@@ -68,6 +68,9 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
   const [error, setError] = useState('');
   const [busyPost, setBusyPost] = useState<string | null>(null); // id поста или 'add' / 'day'
   // «Опиши своими словами»
+  // вопрос перед неделей: «что важного хочешь донести / сделать?»
+  const [asking, setAsking] = useState(false);
+  const [intentDraft, setIntentDraft] = useState('');
   const [adding, setAdding] = useState(false);
   const [idea, setIdea] = useState('');
   const [ideaPlatform, setIdeaPlatform] = useState('');
@@ -104,11 +107,12 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
   // ---------- генерация ----------
   const tasteBody = () => ({ liked: taste.liked.slice(0, 5), disliked: taste.disliked.slice(0, 3) });
 
-  const genDay = async (w: number, d: number, ctx: { wk: Week; appearance: string }) => {
+  const genDay = async (w: number, d: number, ctx: { wk: Week; appearance: string }, attempt = 1): Promise<void> => {
     const dp = ctx.wk.days[d];
     try {
       const data = await postJSON<{ posts: RawPost[] }>('/api/brain-plan', {
         action: 'day',
+        intent: ctx.wk.intent || '',
         persona: { ...apiPersona, appearance: ctx.appearance },
         storyline: ctx.wk.storyline,
         scenario: ctx.wk.scenario,
@@ -121,13 +125,24 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       });
       patchDay(w, d, (x) => ({ ...x, failed: false, posts: [...x.posts.filter((p) => p.own), ...data.posts.map(toPost)].sort(sortPosts) }));
     } catch {
+      // один раз пробуем ещё сами, и только потом показываем ошибку
+      if (attempt < 2) return genDay(w, d, ctx, attempt + 1);
       patchDay(w, d, (x) => ({ ...x, failed: true }));
     }
   };
 
-  const buildWeek = async () => {
+  /** Открыть вопрос недели перед сборкой плана */
+  const askIntent = () => {
+    setIntentDraft(week.intent || '');
+    setAsking(true);
+    setMode('feed');
+  };
+
+  const buildWeek = async (intentArg?: string) => {
     const w = wi;
-    const base = plan.weeks[w] || emptyWeek();
+    const stored = plan.weeks[w] || emptyWeek();
+    const base: Week = { ...stored, intent: intentArg ?? stored.intent ?? '' };
+    setAsking(false);
     setError('');
     setMode('feed');
     setGen({ wi: w, phase: 'outline', done: 0 });
@@ -136,6 +151,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         action: 'outline',
         persona: apiPersona,
         references: persona.appearance ? [] : persona.refs,
+        intent: base.intent,
         scenario: base.scenario,
         bans: base.bans,
         ...tasteBody(),
@@ -180,6 +196,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         storyline: week.storyline,
         scenario: week.scenario,
         bans: week.bans,
+        intent: week.intent || '',
         day: DAYS[dayIdx],
         beat: dp0.beat,
         current: post?.text || '',
@@ -275,6 +292,9 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       <div>
         {header}
         <p style={{ ...hint, fontSize: 13 }}>Что происходит у персонажа на этой неделе: события, запуск, настроение. Персонаж вплетёт это в посты.</p>
+        <span style={label}>🎯 Главное на этой неделе</span>
+        <textarea value={week.intent || ''} maxLength={1000} onChange={(e) => patchWeek(wi, (wk) => ({ ...wk, intent: e.target.value }))} rows={2} placeholder="что важного ты хочешь донести или сделать" style={{ ...textarea, marginBottom: 16 }} />
+
         <span style={label}>Сценарий недели</span>
         <textarea value={week.scenario} maxLength={3000} onChange={(e) => setScenario({ scenario: e.target.value })} rows={6} placeholder="например: в среду переезд, к выходным первая встреча с новым соседом" style={textarea} />
         <div style={{ textAlign: 'right', fontSize: 11, color: '#555', margin: '4px 0 16px' }}>{week.scenario.length}/3000</div>
@@ -284,7 +304,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         <textarea value={week.bans} maxLength={3000} onChange={(e) => setScenario({ bans: e.target.value })} rows={4} placeholder="например: без поездок и спорта, не упоминать бывшего" style={textarea} />
         <div style={{ textAlign: 'right', fontSize: 11, color: '#555', margin: '4px 0 16px' }}>{week.bans.length}/3000</div>
 
-        <Btn full disabled={Boolean(gen)} onClick={buildWeek}>
+        <Btn full disabled={Boolean(gen)} onClick={() => buildWeek()}>
           {built ? 'Учесть в постах недели' : 'Собрать план недели'}
         </Btn>
         {built && (
@@ -327,7 +347,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       {header}
       {dayStrip}
 
-      {error && <ErrorBox text={error} onRetry={built ? undefined : buildWeek} />}
+      {error && <ErrorBox text={error} onRetry={built ? undefined : () => buildWeek()} />}
 
       {isGenerating && gen?.phase === 'outline' && <Spinner text="Придумываем сюжет недели…" />}
       {isGenerating && gen?.phase === 'days' && (
@@ -339,15 +359,33 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         </div>
       )}
 
-      {!built && !isGenerating && (
+      {asking && !isGenerating && (
+        <div style={{ ...card, marginBottom: 12, border: `1px solid ${neon}50` }}>
+          <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3, marginBottom: 6 }}>Что важного ты хочешь донести или сделать на этой неделе?</div>
+          <p style={hint}>Одна главная мысль или задача. Вся неделя будет работать на неё.</p>
+          <textarea autoFocus value={intentDraft} onChange={(e) => setIntentDraft(e.target.value)} maxLength={1000} rows={4} placeholder={self ? 'например: хочу, чтобы люди поняли, что ИИ-модель можно сделать за 3 вечера без опыта, и в пятницу открыть набор на курс' : 'например: показать, что она смешная и немного неловкая, а в пятницу продать первый PPV'} style={{ ...textarea, marginBottom: 10 }} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+            {INTENT_CHIPS[persona.kind].map((c) => (
+              <Chip key={c} onClick={() => setIntentDraft(intentDraft ? `${intentDraft}. ${c}` : c)}>+ {c}</Chip>
+            ))}
+          </div>
+          <Btn full disabled={!intentDraft.trim()} onClick={() => buildWeek(intentDraft.trim())}>Собрать план под это</Btn>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <button onClick={() => setAsking(false)} style={{ background: 'none', border: 'none', color: '#666', fontSize: 12, padding: '14px 4px 0', cursor: 'pointer' }}>Отмена</button>
+            <button onClick={() => buildWeek('')} style={{ background: 'none', border: 'none', color: '#888', fontSize: 12, padding: '14px 4px 0', cursor: 'pointer' }}>Не знаю, пусть решит ИИ →</button>
+          </div>
+        </div>
+      )}
+
+      {!built && !isGenerating && !asking && (
         <div style={{ ...card, textAlign: 'center', padding: '30px 18px' }}>
           <div style={{ fontSize: 30, marginBottom: 8 }}>🗓</div>
           <p style={{ fontSize: 14, color: '#aaa', margin: '0 0 18px', lineHeight: 1.5 }}>
-            План на эту неделю ещё не собран.<br />ИИ придумает сюжет и напишет по 2–3 поста на каждый день.
+            План на эту неделю ещё не собран.<br />Сначала один вопрос о главном, потом ИИ напишет посты на каждый день.
           </p>
-          <Btn full disabled={Boolean(gen)} onClick={buildWeek}>Собрать план недели</Btn>
+          <Btn full disabled={Boolean(gen)} onClick={askIntent}>Собрать план недели</Btn>
           <button onClick={() => setMode('scenario')} style={{ background: 'none', border: 'none', color: '#777', fontSize: 12, padding: 14, cursor: 'pointer' }}>
-            Сначала добавить события недели →
+            Добавить события и запреты недели →
           </button>
         </div>
       )}
@@ -356,6 +394,9 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         <div style={{ ...card, marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: '#888', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Сюжет недели</div>
           <div style={{ fontSize: 15 }}>{week.storyline}</div>
+          <button onClick={askIntent} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '8px 0 0', cursor: 'pointer', fontSize: 12, color: '#aaa', lineHeight: 1.4 }}>
+            🎯 {week.intent ? <>Главное: <span style={{ color: '#ddd' }}>{week.intent}</span> · <u>изменить</u></> : <u>Задать главное на неделю</u>}
+          </button>
           {day?.beat && (
             <div style={{ fontSize: 12, color: '#777', marginTop: 8, lineHeight: 1.4 }}>
               <span style={{ color: GOAL_COLORS[day.goal] }}>● {day.goal}</span> · {day.beat}

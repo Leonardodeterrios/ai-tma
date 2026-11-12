@@ -40,6 +40,7 @@ export function readPersona(input: unknown): Persona {
     goalFollowers: clip(p.goalFollowers, 20),
     goalRevenue: clip(p.goalRevenue, 20),
     goalDeadline: clip(p.goalDeadline, 20),
+    insights: clip(p.insights, 1500),
   };
 }
 
@@ -63,6 +64,7 @@ export function personaBlock(p: Persona) {
       p.vision && `Каким автор видит свой блог: ${p.vision}`,
       p.offer ? `Что продаёт: ${p.offer}` : 'Пока ничего не продаёт — цель: рост, доверие, подписки и сообщения в личку.',
       p.site && `Сайт: ${p.site}`,
+      p.insights && `ЧТО УЖЕ РАБОТАЕТ В ЕЁ АККАУНТЕ (разбор статистики, опирайся на это):\n${p.insights}`,
       p.proof && `ЦИФРЫ И КЕЙСЫ (опирайся на них, это главный материал для живых постов):\n${p.proof}`,
       p.tone && `Тон: ${p.tone}`,
       p.character && `О себе: ${p.character}`,
@@ -89,6 +91,7 @@ export function personaBlock(p: Persona) {
     `История: ${story}`,
     p.platforms.length && `Площадки: ${p.platforms.join(', ')}`,
     goalsLine(p),
+    p.insights && `ЧТО УЖЕ РАБОТАЕТ В ЕЁ АККАУНТЕ (разбор статистики, опирайся на это):\n${p.insights}`,
     p.examples
       ? `Как она пишет (копируй длину фраз, регистр, эмодзи, сленг, пунктуацию):\n${p.examples}`
       : 'Манера речи: как в живом мессенджере, строчными буквами, без официальщины.',

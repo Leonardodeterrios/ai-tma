@@ -83,7 +83,7 @@ function postRules(p: Persona) {
   if (p.kind === 'self') {
     return `ПРАВИЛА ПОСТА:
 - От первого лица, голосом автора, в женском роде. Без поучительного тона.
-- Время ЧЧ:ММ, реалистичное и не круглое (09:10, 13:20, 19:40).
+- Время ЧЧ:ММ, у каждого поста своё и не круглое: охватные площадки днём и вечером (12:10–13:30, 18:40–21:30), Telegram утром или после 20:00.
 - hashtags — только если площадка их требует, иначе пустая строка.
 ${languageRule(p)}
 
@@ -137,7 +137,7 @@ const postSchema = {
     hook: { type: 'string', description: 'хук для видео: текст на экране в первые 1–2 секунды, или пусто' },
     draft: { type: 'string', description: 'быстрый черновик поста' },
     problems: { type: 'string', description: 'что в черновике плохо: стоп-фразы, вялый крючок, нет конкретики, выдуманные факты, лишние ! и эмодзи, не по правилам площадки. Коротко.' },
-    text: { type: 'string', description: 'чистовик: черновик, в котором исправлено всё из problems' },
+    text: { type: 'string', description: 'ОБЯЗАТЕЛЬНО, не пустой: полный готовый текст поста (чистовик), в котором исправлено всё из problems' },
     translation: { type: 'string', description: 'русский перевод text, если text не на русском, иначе пусто' },
     hashtags: { type: 'string', description: 'хэштеги через пробел или пустая строка' },
     imagePrompt: { type: 'string', description: 'что снять / раскадровка / промпт фото, или пусто' },
@@ -182,6 +182,18 @@ const onePostSchema = {
   properties: { post: postSchema },
 };
 
+/**
+ * Проверяем пост от ИИ: у поста обязан быть текст.
+ * Слабые модели иногда оставляют чистовик пустым — тогда берём черновик.
+ * Служебные поля (черновик, самопроверка) на экран не отдаём.
+ */
+function cleanPost(raw: unknown): Record<string, unknown> | null {
+  const { draft, problems, ...post } = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  void problems;
+  const text = String(post.text || '').trim() || String(draft || '').trim();
+  return text ? { ...post, text } : null;
+}
+
 // ---------- куски промпта ----------
 function textList(v: unknown, maxItems: number, maxLen: number) {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, maxItems).map((x) => x.slice(0, maxLen)) : [];
@@ -194,8 +206,10 @@ function tasteBlock(liked: string[], disliked: string[]) {
   return parts.join('\n\n');
 }
 
-function weekRules(scenario: string, bans: string) {
+function weekRules(intent: string, scenario: string, bans: string) {
   return [
+    intent && `ГЛАВНОЕ НА ЭТОЙ НЕДЕЛЕ (слова автора, это важнее всего остального): ${intent}
+Вся неделя работает на это: тема недели вырастает отсюда, минимум 4 дня из 7 напрямую про это с разных сторон (история, доказательство, возражение, ошибка, результат), остальные дни подводят к этому.`,
     scenario && `СОБЫТИЯ НЕДЕЛИ ОТ АВТОРА (обязательно вплети): ${scenario}`,
     bans && `ЗАПРЕТЫ НЕДЕЛИ (этого не должно быть нигде): ${bans}`,
   ]
@@ -218,7 +232,7 @@ export async function POST(req: Request) {
       intro(persona),
       personaBlock(persona),
       !self && persona.appearance && `Внешность (для промптов фото): ${persona.appearance}`,
-      weekRules(scenario, bans),
+      weekRules(clip(body.intent, 1000), scenario, bans),
       taste,
       self && NO_INVENT_RULES,
       LIVE_TEXT_RULES,
@@ -275,7 +289,9 @@ ${dayTask(persona)}`,
           },
         ],
       });
-      return Response.json({ posts: out.posts || [] });
+      const posts = (out.posts || []).map(cleanPost).filter(Boolean);
+      if (!posts.length) throw new HttpError('ИИ вернул пустые посты. Попробуй ещё раз', 502);
+      return Response.json({ posts });
     }
 
     // ---------- 3. Переписать или добавить один пост ----------
@@ -311,7 +327,9 @@ ${light
           },
         ],
       });
-      return Response.json({ post: out.post });
+      const post = cleanPost(out.post);
+      if (!post) throw new HttpError('ИИ вернул пустой пост. Попробуй ещё раз', 502);
+      return Response.json({ post });
     }
 
     throw new HttpError('Неизвестное действие', 400);
