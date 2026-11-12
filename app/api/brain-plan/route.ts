@@ -4,28 +4,54 @@
 //  post    — переписать один пост или добавить новый
 import { askJSON, cleanImages, clip, errorResponse, HttpError, type ChatMessage } from '../../lib/server/openai';
 import { LIVE_TEXT_RULES, NO_INVENT_RULES, personaBlock, readPersona } from '../../lib/server/prompts';
-import { DAYS, GOALS, MODEL_PLATFORMS, PLATFORM_RULES, SALES_LEVELS, SELF_PLATFORMS, type Persona } from '../../lib/persona';
+import { DAYS, GOALS, MEDIA_TYPES, MODEL_PLATFORM_RULES, MODEL_PLATFORMS, PLATFORM_RULES, SALES_LEVELS, SELF_PLATFORMS, type Persona } from '../../lib/persona';
 
 export const maxDuration = 60;
 
 // Порядок воронки: сначала охватные площадки, Telegram — после них
-const FUNNEL_ORDER = ['Threads', 'Instagram', 'TikTok', 'YouTube', 'VK', 'Telegram'];
+const FUNNEL_ORDER = ['Threads', 'Instagram', 'TikTok', 'YouTube', 'VK', 'Telegram', 'Fanvue', 'OnlyFans'];
 const ALL_PLATFORMS = [...new Set([...SELF_PLATFORMS, ...MODEL_PLATFORMS]), ''];
 
 /** Для каких площадок пишем посты */
 function activePlatforms(p: Persona): string[] {
-  if (p.kind !== 'self' || !p.platforms.length) return [];
+  if (!p.platforms.length) return [];
   if (p.focus !== 'all' && p.platforms.includes(p.focus)) return [p.focus];
   return [...p.platforms].sort((a, b) => FUNNEL_ORDER.indexOf(a) - FUNNEL_ORDER.indexOf(b)).slice(0, 4);
 }
 
 // ---------- воронка недели ----------
-const FUNNEL_MODEL = `ВОРОНКА НЕДЕЛИ (неделя — цепочка к продаже, а не набор случайных постов):
-- Пн–Вт: Доверие и Вовлечение — кто она, что у неё происходит, вопросы подписчикам.
-- Ср–Чт: Прогрев — интрига, намёки на закрытое, «вчера сняла кое-что».
-- Пт: мягкая Продажа — тизер закрытого контента.
-- Сб: Вовлечение — лёгкое, смешное, близкое.
-- Вс: Продажа или Доверие — итог недели, тёплый финал с намёком.`;
+const FUNNEL_MODEL = `НЕДЕЛЯ МОДЕЛИ — это маленький сериал про её жизнь, а не витрина:
+- У недели есть сюжет: конкретные события её жизни, которые развиваются день за днём (сломался кондиционер → мастер пришёл через 3 дня → она переехала спать на балкон).
+- Пн–Чт: Доверие и Вовлечение — быт, характер, мнения, смешные случаи, вопросы подписчикам. Про закрытый контент ни слова.
+- Пт: Продажа — один мягкий тизер, связанный с сюжетом недели.
+- Сб: Вовлечение — лёгкое и смешное.
+- Вс: Доверие или Продажа — итог недели, тёплый финал.`;
+
+/** Как сделать модель живой личностью */
+const MODEL_PERSONALITY = `МОДЕЛЬ — ЖИВОЙ ЧЕЛОВЕК, А НЕ РЕКЛАМА:
+- Канал интересен личностью: характер, мнения, привычки, быт, страхи, слабости, смешные случаи, отношения с питомцем, подругой, соседом, хобби. Бери из анкеты и сюжета недели, придумывай детали в её характере.
+- Рубрики (format), чередуй, в один день не повторяй: Утро, Быт, Смешной случай, Мнение, История из прошлого, Хобби, Вопрос подписчикам, Мысли вслух, Закулисье съёмки, Тизер.
+- Тизеры и намёки на закрытый контент — только в дни с целью «Продажа», максимум один пост в день. В остальные дни ни слова о сюрпризах и закрытом.
+- В каждом посте конкретная деталь: название еды, места, сериала, что сломалось, что сказала соседка, сколько градусов.
+- Посты дня разные по длине и настроению: один короткий в 1 строку, другой подлиннее.
+- СТОП-ФРАЗЫ модели: «сюрприз», «что-то особенное», «оставайтесь на связи», «не пропустите», «готовьтесь», «горячий», «пульс», «сердце забьётся», «феерия», «вау», «для самых смелых», «веселье», «кайфовали», «неделя пролетела».`;
+
+/** На каком языке пишет модель */
+function languageRule(p: Persona) {
+  if (p.kind === 'self' || p.languageMode === 'ru') return '- Язык: русский. translation — пустая строка.';
+  return `- Язык: text, hook и hashtags — на разговорном английском (как пишет живая девушка в соцсетях: просто, коротко, строчными буквами можно). translation — перевод text на русский для автора.`;
+}
+
+const MEDIA_RULES = (p: Persona) => `ТИП КОНТЕНТА (поле media): ${MEDIA_TYPES.join(', ')}.
+- За день минимум 2 разных типа: хотя бы один пост только Текст или Голосовое и хотя бы один визуальный.
+- imagePrompt — для всего, кроме «Текст»: что именно в контенте. ${
+  p.kind === 'self'
+    ? 'По-русски: что снять, кадр, ракурс; для видео и рилс — раскадровка; для голосового — о чём говорить.'
+    : 'Для Фото и Карусели — промпт на английском: сцена, свет, одежда, поза, объектив, внешность, в конце "photorealistic, natural skin texture, candid". Для Видео, Кружка, Сторис — по-русски, что происходит в кадре. Для Голосового — по-русски, о чём она говорит.'
+}
+- hook и sound — только для Видео, Рилс, Кружок, Сторис, иначе пустые строки.
+- format — рубрика по-русски, одним-двумя словами.`;
+
 
 function funnelSelf(p: Persona) {
   const platforms = activePlatforms(p);
@@ -49,35 +75,51 @@ const intro = (p: Persona) =>
     : 'Ты — сильный SMM-редактор канала с вымышленным персонажем. Пишешь посты для канала персонажа.';
 
 function postRules(p: Persona) {
+  const platforms = activePlatforms(p);
+  const rules = p.kind === 'self' ? PLATFORM_RULES : MODEL_PLATFORM_RULES;
+  const platformBlock = platforms.length
+    ? `ПРАВИЛА ПЛОЩАДОК (поле platform — одна из них):\n${platforms.map((x) => `- ${rules[x] || x}`).join('\n')}`
+    : '- platform: пустая строка.';
   if (p.kind === 'self') {
-    const platforms = activePlatforms(p);
     return `ПРАВИЛА ПОСТА:
 - От первого лица, голосом автора, в женском роде. Без поучительного тона.
-- Время ЧЧ:ММ, реалистичное и не круглое (09:10, 13:20, 19:40).
-- format: Личное, Польза, Кейс, Закулисье, Мнение, Провокация, Вопрос, Опрос, Рилс, Продажа.
-- needsMedia = true, если нужно фото или видео. Тогда imagePrompt — ПО-РУССКИ, что снять: кадр, ракурс, что в руках, что на фоне. Для рилс — раскадровка. Иначе imagePrompt пустой.
-- hook и sound заполняй только для видео (Reels, TikTok, YouTube), иначе пустые строки.
+- Время ЧЧ:ММ, у каждого поста своё и не круглое: охватные площадки днём и вечером (12:10–13:30, 18:40–21:30), Telegram утром или после 20:00.
 - hashtags — только если площадка их требует, иначе пустая строка.
-${platforms.length ? `\nПРАВИЛА ПЛОЩАДОК (поле platform — одна из них):\n${platforms.map((x) => `- ${PLATFORM_RULES[x] || x}`).join('\n')}` : '- platform: пустая строка.'}`;
+${languageRule(p)}
+
+${MEDIA_RULES(p)}
+
+${platformBlock}`;
   }
   return `ПРАВИЛА ПОСТА:
-- От первого лица, голосом персонажа. 15–60 слов. Строчные буквы, если так пишет персонаж.
-- Время ЧЧ:ММ, реалистичное и не круглое (09:00, 13:20, 17:40, 22:10).
-- needsMedia = true, если к посту нужно фото. Тогда imagePrompt: полностью на английском, сцена (локация, свет, одежда, поза, объектив), внешность персонажа, в конце "photorealistic, natural skin texture, candid". Если фото не нужно — imagePrompt пустой.
-- platform, hook, sound: пустые строки.
-- Соблазнительно и с намёком, но без графической откровенности: интрига продаёт лучше.`;
+- От первого лица, голосом персонажа. От одной строки до 70 слов. Строчные буквы, если так пишет персонаж.
+- Время ЧЧ:ММ, реалистичное и не круглое (08:40, 13:20, 17:50, 23:10).
+- Хэштеги только если площадка их требует (Instagram), иначе пустая строка.
+- Соблазнительно и с намёком можно только в тизерах, без графической откровенности.
+${languageRule(p)}
+
+${MODEL_PERSONALITY}
+
+${MEDIA_RULES(p)}
+
+${platformBlock}`;
 }
 
 /** Что именно написать на день */
 function dayTask(p: Persona) {
   const platforms = activePlatforms(p);
   if (platforms.length > 1) {
+    if (p.kind === 'model') {
+      return `Сделай ровно по одному посту для каждой площадки: ${platforms.join(', ')}. Это одна связка дня вокруг события дня:
+охватные площадки знакомят с ней без откровенного, Telegram показывает её жизнь ближе, платная площадка — самое личное.
+Каждый пост написан под правила своей площадки, разные рубрики и типы контента.`;
+    }
     return `Сделай ровно по одному посту для каждой площадки: ${platforms.join(', ')}. Это одна связка дня на одну тему:
 охватные площадки цепляют темой и провоцируют${platforms.includes('Telegram') ? ', а в конце ведут в Telegram («подробнее у меня в телеге, ссылка в шапке»)' : ''}; ${platforms.includes('Telegram') ? 'Telegram раскрывает тему глубже и экспертнее, с конкретикой.' : ''}
 Каждый пост написан под правила своей площадки, а не один текст на всех.`;
   }
-  if (platforms.length === 1) return `Сделай 2–3 поста для ${platforms[0]} в разное время, с разными форматами, строго по правилам площадки.`;
-  return 'Сделай 2–3 поста в разное время, с разными форматами. Хотя бы один пост с медиа, хотя бы один без.';
+  if (platforms.length === 1) return `Сделай 3 поста для ${platforms[0]} в разное время (утро, день, вечер): разные рубрики и разные типы контента, строго по правилам площадки.`;
+  return 'Сделай 3 поста в разное время (утро, день, вечер): разные рубрики и разные типы контента.';
 }
 
 // ---------- схемы ответов ----------
@@ -85,18 +127,19 @@ const postSchema = {
   type: 'object',
   additionalProperties: false,
   // draft и problems — черновик и самопроверка: модель сначала пишет, потом ищет ошибки, и только потом даёт чистовик (text)
-  required: ['platform', 'time', 'format', 'goal', 'hook', 'draft', 'problems', 'text', 'hashtags', 'needsMedia', 'imagePrompt', 'sound'],
+  required: ['platform', 'time', 'format', 'goal', 'media', 'hook', 'draft', 'problems', 'text', 'translation', 'hashtags', 'imagePrompt', 'sound'],
   properties: {
     platform: { type: 'string', enum: ALL_PLATFORMS },
     time: { type: 'string', description: 'время публикации ЧЧ:ММ' },
-    format: { type: 'string', description: 'формат поста одним-двумя словами' },
+    format: { type: 'string', description: 'рубрика по-русски, одним-двумя словами' },
     goal: { type: 'string', enum: GOALS },
+    media: { type: 'string', enum: [...MEDIA_TYPES] },
     hook: { type: 'string', description: 'хук для видео: текст на экране в первые 1–2 секунды, или пусто' },
     draft: { type: 'string', description: 'быстрый черновик поста' },
     problems: { type: 'string', description: 'что в черновике плохо: стоп-фразы, вялый крючок, нет конкретики, выдуманные факты, лишние ! и эмодзи, не по правилам площадки. Коротко.' },
-    text: { type: 'string', description: 'чистовик: черновик, в котором исправлено всё из problems' },
+    text: { type: 'string', description: 'ОБЯЗАТЕЛЬНО, не пустой: полный готовый текст поста (чистовик), в котором исправлено всё из problems' },
+    translation: { type: 'string', description: 'русский перевод text, если text не на русском, иначе пусто' },
     hashtags: { type: 'string', description: 'хэштеги через пробел или пустая строка' },
-    needsMedia: { type: 'boolean' },
     imagePrompt: { type: 'string', description: 'что снять / раскадровка / промпт фото, или пусто' },
     sound: { type: 'string', description: 'звук для видео или пусто' },
   },
@@ -139,6 +182,18 @@ const onePostSchema = {
   properties: { post: postSchema },
 };
 
+/**
+ * Проверяем пост от ИИ: у поста обязан быть текст.
+ * Слабые модели иногда оставляют чистовик пустым — тогда берём черновик.
+ * Служебные поля (черновик, самопроверка) на экран не отдаём.
+ */
+function cleanPost(raw: unknown): Record<string, unknown> | null {
+  const { draft, problems, ...post } = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  void problems;
+  const text = String(post.text || '').trim() || String(draft || '').trim();
+  return text ? { ...post, text } : null;
+}
+
 // ---------- куски промпта ----------
 function textList(v: unknown, maxItems: number, maxLen: number) {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, maxItems).map((x) => x.slice(0, maxLen)) : [];
@@ -151,8 +206,10 @@ function tasteBlock(liked: string[], disliked: string[]) {
   return parts.join('\n\n');
 }
 
-function weekRules(scenario: string, bans: string) {
+function weekRules(intent: string, scenario: string, bans: string) {
   return [
+    intent && `ГЛАВНОЕ НА ЭТОЙ НЕДЕЛЕ (слова автора, это важнее всего остального): ${intent}
+Вся неделя работает на это: тема недели вырастает отсюда, минимум 4 дня из 7 напрямую про это с разных сторон (история, доказательство, возражение, ошибка, результат), остальные дни подводят к этому.`,
     scenario && `СОБЫТИЯ НЕДЕЛИ ОТ АВТОРА (обязательно вплети): ${scenario}`,
     bans && `ЗАПРЕТЫ НЕДЕЛИ (этого не должно быть нигде): ${bans}`,
   ]
@@ -175,7 +232,7 @@ export async function POST(req: Request) {
       intro(persona),
       personaBlock(persona),
       !self && persona.appearance && `Внешность (для промптов фото): ${persona.appearance}`,
-      weekRules(scenario, bans),
+      weekRules(clip(body.intent, 1000), scenario, bans),
       taste,
       self && NO_INVENT_RULES,
       LIVE_TEXT_RULES,
@@ -191,6 +248,7 @@ export async function POST(req: Request) {
           type: 'text',
           text: `Придумай ${self ? 'тему недели и тему каждого дня' : 'сюжет этой недели и задачу на каждый день'} (Пн–Вс, ровно 7).
 ${self ? funnelSelf(persona) : FUNNEL_MODEL}
+${!self ? 'beat каждого дня — конкретное событие её жизни, а не «тизер» и не «сюрприз». storyline — сюжет недели до 8 слов.' : ''}
 ${self ? 'Темы дней конкретные и разные: не «мой путь», а «3 ошибки, из-за которых ИИ-модель выглядит пластиковой». Опирайся на боли аудитории, кейсы и цифры из анкеты.' : ''}
 ${storyline ? `Сюжет уже задан автором: «${storyline}». Оставь его.` : ''}
 ${self ? 'appearance: пустая строка.' : `appearance: ${images.length ? 'опиши внешность по приложенным фото' : persona.appearance ? 'повтори данную внешность' : 'придумай внешность под архетип и историю'}.`}`,
@@ -231,7 +289,9 @@ ${dayTask(persona)}`,
           },
         ],
       });
-      return Response.json({ posts: out.posts || [] });
+      const posts = (out.posts || []).map(cleanPost).filter(Boolean);
+      if (!posts.length) throw new HttpError('ИИ вернул пустые посты. Попробуй ещё раз', 502);
+      return Response.json({ posts });
     }
 
     // ---------- 3. Переписать или добавить один пост ----------
@@ -267,7 +327,9 @@ ${light
           },
         ],
       });
-      return Response.json({ post: out.post });
+      const post = cleanPost(out.post);
+      if (!post) throw new HttpError('ИИ вернул пустой пост. Попробуй ещё раз', 502);
+      return Response.json({ post });
     }
 
     throw new HttpError('Неизвестное действие', 400);
