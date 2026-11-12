@@ -2,12 +2,12 @@
 // Вкладка «План»: календарь недели, посты по дням, сценарий и медиа.
 import { useEffect, useMemo, useState } from 'react';
 import {
-  DAYS, GOALS, GOAL_COLORS, PLATFORM_COLORS, newId,
-  type DayPlan, type Goal, type Persona, type PlanStore, type Post, type Taste, type Week,
+  DAYS, GOALS, GOAL_COLORS, INTENT_CHIPS, MEDIA_ICONS, MEDIA_TYPES, PLATFORM_COLORS, VIDEO_MEDIA, newId,
+  type DayPlan, type Goal, type MediaType, type Persona, type PlanStore, type Post, type Taste, type Week,
 } from '../lib/persona';
 import { addDays, copyText, errorText, mondayOf, postJSON } from '../lib/client';
 import { projectKeys, useStored } from '../lib/storage';
-import { Btn, Chip, ErrorBox, Spinner, card, hint, label, neon, textarea } from './ui';
+import { Btn, Chip, ErrorBox, Spinner, card, display, hint, label, neon, textarea } from './ui';
 
 type Mode = 'feed' | 'scenario' | 'media';
 type RawPost = Partial<Omit<Post, 'id' | 'rating'>>;
@@ -20,8 +20,14 @@ const DAY_MS = 86_400_000;
 const emptyWeek = (): Week => ({ storyline: '', scenario: '', bans: '', days: [] });
 const asGoal = (g: unknown): Goal => (GOALS.includes(g as Goal) ? (g as Goal) : 'Доверие');
 
+/** Тип контента поста; у старых сохранённых постов его нет — выводим из needsMedia */
+function mediaOf(r: { media?: string; needsMedia?: boolean }): MediaType {
+  return MEDIA_TYPES.includes(r.media as MediaType) ? (r.media as MediaType) : r.needsMedia ? 'Фото' : 'Текст';
+}
+
 function toPost(r: RawPost): Post {
-  const needsMedia = Boolean(r.needsMedia);
+  const media = mediaOf(r);
+  const video = VIDEO_MEDIA.includes(media);
   return {
     id: newId(),
     time: /^\d{1,2}:\d{2}$/.test(r.time || '') ? (r.time as string).padStart(5, '0') : '12:00',
@@ -29,23 +35,21 @@ function toPost(r: RawPost): Post {
     goal: asGoal(r.goal),
     text: r.text || '',
     hashtags: r.hashtags || '',
-    needsMedia,
-    imagePrompt: needsMedia ? r.imagePrompt || '' : '',
+    media,
+    needsMedia: media !== 'Текст',
+    imagePrompt: media !== 'Текст' ? r.imagePrompt || '' : '',
     platform: r.platform || '',
-    hook: r.hook || '',
-    sound: r.sound || '',
+    hook: video ? r.hook || '' : '', // хук нужен только видео
+    sound: video ? r.sound || '' : '',
+    translation: r.translation || '',
     rating: 0,
   };
 }
 
 const byTime = (a: Post, b: Post) => a.time.localeCompare(b.time);
 const postForCopy = (p: Post) => [p.hook && `Хук: ${p.hook}`, p.text, p.hashtags].filter(Boolean).join('\n\n');
-const PLATFORM_ORDER = ['Threads', 'Instagram', 'TikTok', 'YouTube', 'VK', 'Telegram'];
-// посты дня: по времени, а в связке — по воронке (охват → Telegram)
-const sortPosts = (a: Post, b: Post) =>
-  a.platform && b.platform && a.platform !== b.platform
-    ? PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform)
-    : byTime(a, b);
+// посты дня идут по времени публикации
+const sortPosts = byTime;
 
 export default function ContentPlan({ persona, onAppearance }: { persona: Persona; onAppearance: (a: string) => void }) {
   const keys = projectKeys(persona.id);
@@ -64,6 +68,9 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
   const [error, setError] = useState('');
   const [busyPost, setBusyPost] = useState<string | null>(null); // id поста или 'add' / 'day'
   // «Опиши своими словами»
+  // вопрос перед неделей: «что важного хочешь донести / сделать?»
+  const [asking, setAsking] = useState(false);
+  const [intentDraft, setIntentDraft] = useState('');
   const [adding, setAdding] = useState(false);
   const [idea, setIdea] = useState('');
   const [ideaPlatform, setIdeaPlatform] = useState('');
@@ -100,11 +107,12 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
   // ---------- генерация ----------
   const tasteBody = () => ({ liked: taste.liked.slice(0, 5), disliked: taste.disliked.slice(0, 3) });
 
-  const genDay = async (w: number, d: number, ctx: { wk: Week; appearance: string }) => {
+  const genDay = async (w: number, d: number, ctx: { wk: Week; appearance: string }, attempt = 1): Promise<void> => {
     const dp = ctx.wk.days[d];
     try {
       const data = await postJSON<{ posts: RawPost[] }>('/api/brain-plan', {
         action: 'day',
+        intent: ctx.wk.intent || '',
         persona: { ...apiPersona, appearance: ctx.appearance },
         storyline: ctx.wk.storyline,
         scenario: ctx.wk.scenario,
@@ -117,13 +125,24 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       });
       patchDay(w, d, (x) => ({ ...x, failed: false, posts: [...x.posts.filter((p) => p.own), ...data.posts.map(toPost)].sort(sortPosts) }));
     } catch {
+      // один раз пробуем ещё сами, и только потом показываем ошибку
+      if (attempt < 2) return genDay(w, d, ctx, attempt + 1);
       patchDay(w, d, (x) => ({ ...x, failed: true }));
     }
   };
 
-  const buildWeek = async () => {
+  /** Открыть вопрос недели перед сборкой плана */
+  const askIntent = () => {
+    setIntentDraft(week.intent || '');
+    setAsking(true);
+    setMode('feed');
+  };
+
+  const buildWeek = async (intentArg?: string) => {
     const w = wi;
-    const base = plan.weeks[w] || emptyWeek();
+    const stored = plan.weeks[w] || emptyWeek();
+    const base: Week = { ...stored, intent: intentArg ?? stored.intent ?? '' };
+    setAsking(false);
     setError('');
     setMode('feed');
     setGen({ wi: w, phase: 'outline', done: 0 });
@@ -132,6 +151,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         action: 'outline',
         persona: apiPersona,
         references: persona.appearance ? [] : persona.refs,
+        intent: base.intent,
         scenario: base.scenario,
         bans: base.bans,
         ...tasteBody(),
@@ -176,6 +196,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
         storyline: week.storyline,
         scenario: week.scenario,
         bans: week.bans,
+        intent: week.intent || '',
         day: DAYS[dayIdx],
         beat: dp0.beat,
         current: post?.text || '',
@@ -222,41 +243,47 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
 
   // ---------- шапка: недели, режимы, дни ----------
   const range = `${weekMonday.getDate()} ${MONTHS[weekMonday.getMonth()]} – ${addDays(weekMonday, 6).getDate()} ${MONTHS[addDays(weekMonday, 6).getMonth()]}`;
-  const arrow = (enabled: boolean) => ({ background: 'none', border: 'none', color: enabled ? '#ddd' : '#333', fontSize: 22, padding: '4px 14px', cursor: enabled ? 'pointer' : 'default' });
+  const arrow = (enabled: boolean) => ({ width: 38, height: 38, borderRadius: 12, border: '1px solid var(--line)', background: 'var(--surface)', color: enabled ? 'var(--text)' : 'var(--faint)', fontSize: 20, cursor: enabled ? 'pointer' : 'default', opacity: enabled ? 1 : 0.5 });
 
   const header = (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
-        <button style={arrow(wi > 0)} disabled={wi === 0} onClick={() => setWi(wi - 1)}>‹</button>
-        <span style={{ fontSize: 20, fontWeight: 800, minWidth: 120, textAlign: 'center' }}>
-          {wi === currentWi ? 'Эта неделя' : `Неделя ${wi + 1}`}
-        </span>
-        <button style={arrow(wi < currentWi + 4)} disabled={wi >= currentWi + 4} onClick={() => setWi(wi + 1)}>›</button>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div style={{ ...display, fontSize: 24, fontWeight: 800, lineHeight: 1.1 }}>{wi === currentWi ? 'Эта неделя' : `Неделя ${wi + 1}`}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{range}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="vb-btn" aria-label="Прошлая неделя" style={arrow(wi > 0)} disabled={wi === 0} onClick={() => setWi(wi - 1)}>‹</button>
+          <button className="vb-btn" aria-label="Следующая неделя" style={arrow(wi < currentWi + 4)} disabled={wi >= currentWi + 4} onClick={() => setWi(wi + 1)}>›</button>
+        </div>
       </div>
-      <div style={{ textAlign: 'center', fontSize: 12, color: '#666', marginBottom: 14 }}>{range}</div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        {([['feed', 'Лента'], ['scenario', 'Сценарий'], ['media', 'Медиа']] as const).map(([id, name]) => (
-          <button key={id} onClick={() => setMode(id)} style={{ flex: 1, padding: '10px 4px', borderRadius: 20, fontSize: 13, cursor: 'pointer', border: mode === id ? '1px solid #c9915a' : '1px solid #2a2a2a', backgroundColor: mode === id ? '#2a1d12' : '#0d0d0d', color: mode === id ? '#f2c08d' : '#aaa' }}>
-            {name}
-          </button>
-        ))}
+      {/* переключатель режимов: одна «таблетка» с бегунком */}
+      <div style={{ display: 'flex', padding: 4, borderRadius: 999, background: 'var(--surface)', border: '1px solid var(--line)', marginBottom: 14 }}>
+        {([['feed', 'Лента'], ['scenario', 'Сценарий'], ['media', 'Медиа']] as const).map(([id, name]) => {
+          const on = mode === id;
+          return (
+            <button key={id} className="vb-btn" onClick={() => setMode(id)} style={{ flex: 1, padding: '10px 4px', borderRadius: 999, fontSize: 14, fontWeight: 700, cursor: 'pointer', border: 'none', backgroundColor: on ? 'var(--raised)' : 'transparent', color: on ? 'var(--text)' : 'var(--muted)', boxShadow: on ? 'inset 0 0 0 1px var(--line-strong)' : 'none' }}>
+              {name}
+            </button>
+          );
+        })}
       </div>
     </>
   );
 
   const dayStrip = (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5, marginBottom: 14 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 16 }}>
       {DAYS.map((d, i) => {
         const date = addDays(weekMonday, i);
         const isToday = date.toDateString() === today.toDateString();
         const on = i === dayIdx;
         const has = (week.days[i]?.posts.length || 0) > 0;
         return (
-          <button key={d} onClick={() => setDayIdx(i)} style={{ padding: '6px 0 8px', borderRadius: 12, cursor: 'pointer', border: on ? '1px solid #bbb' : '1px solid #222', backgroundColor: on ? '#1c1c1c' : '#0b0b0b', color: on ? '#fff' : '#999' }}>
-            <div style={{ fontSize: 11, color: isToday ? neon : '#666', marginBottom: 2 }}>{date.getDate()}</div>
-            <div style={{ fontSize: 14 }}>{d}</div>
-            <div style={{ width: 4, height: 4, borderRadius: 2, margin: '4px auto 0', backgroundColor: has ? neon : 'transparent' }} />
+          <button key={d} className="vb-btn" onClick={() => setDayIdx(i)} aria-current={on ? 'date' : undefined} style={{ padding: '8px 0 7px', borderRadius: 16, cursor: 'pointer', border: on ? '1px solid transparent' : `1px solid ${isToday ? 'rgba(216,255,79,0.45)' : 'var(--line)'}`, backgroundColor: on ? neon : 'var(--surface)', color: on ? 'var(--lime-ink)' : 'var(--text)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, opacity: on ? 0.7 : 0.55, marginBottom: 1 }}>{d}</div>
+            <div style={{ ...display, fontSize: 16, fontWeight: 700 }}>{date.getDate()}</div>
+            <div style={{ width: 4, height: 4, borderRadius: 2, margin: '4px auto 0', backgroundColor: has ? (on ? 'var(--lime-ink)' : neon) : 'transparent' }} />
           </button>
         );
       })}
@@ -271,16 +298,19 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       <div>
         {header}
         <p style={{ ...hint, fontSize: 13 }}>Что происходит у персонажа на этой неделе: события, запуск, настроение. Персонаж вплетёт это в посты.</p>
+        <span style={label}>🎯 Главное на этой неделе</span>
+        <textarea value={week.intent || ''} maxLength={1000} onChange={(e) => patchWeek(wi, (wk) => ({ ...wk, intent: e.target.value }))} rows={2} placeholder="что важного ты хочешь донести или сделать" style={{ ...textarea, marginBottom: 16 }} />
+
         <span style={label}>Сценарий недели</span>
         <textarea value={week.scenario} maxLength={3000} onChange={(e) => setScenario({ scenario: e.target.value })} rows={6} placeholder="например: в среду переезд, к выходным первая встреча с новым соседом" style={textarea} />
-        <div style={{ textAlign: 'right', fontSize: 11, color: '#555', margin: '4px 0 16px' }}>{week.scenario.length}/3000</div>
+        <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--faint)', margin: '4px 0 16px' }}>{week.scenario.length}/3000</div>
 
         <span style={label}>Запреты</span>
         <p style={hint}>Что точно не нужно на этой неделе. ИИ исключит это из сюжета и постов.</p>
         <textarea value={week.bans} maxLength={3000} onChange={(e) => setScenario({ bans: e.target.value })} rows={4} placeholder="например: без поездок и спорта, не упоминать бывшего" style={textarea} />
-        <div style={{ textAlign: 'right', fontSize: 11, color: '#555', margin: '4px 0 16px' }}>{week.bans.length}/3000</div>
+        <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--faint)', margin: '4px 0 16px' }}>{week.bans.length}/3000</div>
 
-        <Btn full disabled={Boolean(gen)} onClick={buildWeek}>
+        <Btn full disabled={Boolean(gen)} onClick={() => buildWeek()}>
           {built ? 'Учесть в постах недели' : 'Собрать план недели'}
         </Btn>
         {built && (
@@ -297,13 +327,13 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       <div>
         {header}
         {items.length === 0 ? (
-          <div style={{ ...card, textAlign: 'center', color: '#777', fontSize: 13, padding: 30 }}>{self ? 'Пока нет постов, где нужно фото или видео.' : 'Пока нет постов с фото.'} Сначала собери план в «Ленте».</div>
+          <div style={{ ...card, textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: 30 }}>{self ? 'Пока нет постов, где нужно фото или видео.' : 'Пока нет постов с фото.'} Сначала собери план в «Ленте».</div>
         ) : (
           <>
             <p style={{ ...hint, fontSize: 13 }}>{self ? 'Что снять на этой неделе. Удобно отснять всё за один раз.' : 'Все промпты для фото этой недели в одном месте. Сгенерируй их пачкой в Студии.'}</p>
             {items.map(({ p, d }) => (
               <div key={p.id} style={{ ...card, marginBottom: 10 }}>
-                <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{d} · {p.time}{p.platform ? ` · ${p.platform}` : ''} · {p.text.slice(0, 50)}{p.text.length > 50 ? '…' : ''}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>{d} · {p.time} · {MEDIA_ICONS[mediaOf(p)]} {mediaOf(p)}{p.platform ? ` · ${p.platform}` : ''} · {p.text.slice(0, 50)}{p.text.length > 50 ? '…' : ''}</div>
                 <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.45, marginBottom: 10 }}>{p.imagePrompt}</div>
                 <Btn kind="ghost" small onClick={() => doCopy(p.imagePrompt, 'm' + p.id)}>{copied === 'm' + p.id ? '✓ Скопировано' : self ? 'Копировать' : 'Копировать промпт'}</Btn>
               </div>
@@ -323,37 +353,58 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       {header}
       {dayStrip}
 
-      {error && <ErrorBox text={error} onRetry={built ? undefined : buildWeek} />}
+      {error && <ErrorBox text={error} onRetry={built ? undefined : () => buildWeek()} />}
 
       {isGenerating && gen?.phase === 'outline' && <Spinner text="Придумываем сюжет недели…" />}
       {isGenerating && gen?.phase === 'days' && (
-        <div style={{ ...card, marginBottom: 12, fontSize: 13, color: '#aaa' }}>
+        <div style={{ ...card, marginBottom: 12, fontSize: 13, color: '#b4b4bc' }}>
           Пишем посты: {gen.done} из 7 дней
-          <div style={{ height: 4, backgroundColor: '#1a1a1a', borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
+          <div style={{ height: 4, backgroundColor: 'var(--raised)', borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${(gen.done / 7) * 100}%`, backgroundColor: neon, transition: 'width .3s' }} />
           </div>
         </div>
       )}
 
-      {!built && !isGenerating && (
+      {asking && !isGenerating && (
+        <div style={{ ...card, marginBottom: 12, border: `1px solid ${neon}50` }}>
+          <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3, marginBottom: 6 }}>Что важного ты хочешь донести или сделать на этой неделе?</div>
+          <p style={hint}>Одна главная мысль или задача. Вся неделя будет работать на неё.</p>
+          <textarea autoFocus value={intentDraft} onChange={(e) => setIntentDraft(e.target.value)} maxLength={1000} rows={4} placeholder={self ? 'например: хочу, чтобы люди поняли, что ИИ-модель можно сделать за 3 вечера без опыта, и в пятницу открыть набор на курс' : 'например: показать, что она смешная и немного неловкая, а в пятницу продать первый PPV'} style={{ ...textarea, marginBottom: 10 }} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+            {INTENT_CHIPS[persona.kind].map((c) => (
+              <Chip key={c} onClick={() => setIntentDraft(intentDraft ? `${intentDraft}. ${c}` : c)}>+ {c}</Chip>
+            ))}
+          </div>
+          <Btn full disabled={!intentDraft.trim()} onClick={() => buildWeek(intentDraft.trim())}>Собрать план под это</Btn>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <button onClick={() => setAsking(false)} style={{ background: 'none', border: 'none', color: 'var(--faint)', fontSize: 12, padding: '14px 4px 0', cursor: 'pointer' }}>Отмена</button>
+            <button onClick={() => buildWeek('')} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, padding: '14px 4px 0', cursor: 'pointer' }}>Не знаю, пусть решит ИИ →</button>
+          </div>
+        </div>
+      )}
+
+      {!built && !isGenerating && !asking && (
         <div style={{ ...card, textAlign: 'center', padding: '30px 18px' }}>
           <div style={{ fontSize: 30, marginBottom: 8 }}>🗓</div>
-          <p style={{ fontSize: 14, color: '#aaa', margin: '0 0 18px', lineHeight: 1.5 }}>
-            План на эту неделю ещё не собран.<br />ИИ придумает сюжет и напишет по 2–3 поста на каждый день.
+          <p style={{ fontSize: 14, color: '#b4b4bc', margin: '0 0 18px', lineHeight: 1.5 }}>
+            План на эту неделю ещё не собран.<br />Сначала один вопрос о главном, потом ИИ напишет посты на каждый день.
           </p>
-          <Btn full disabled={Boolean(gen)} onClick={buildWeek}>Собрать план недели</Btn>
-          <button onClick={() => setMode('scenario')} style={{ background: 'none', border: 'none', color: '#777', fontSize: 12, padding: 14, cursor: 'pointer' }}>
-            Сначала добавить события недели →
+          <Btn full disabled={Boolean(gen)} onClick={askIntent}>Собрать план недели</Btn>
+          <button onClick={() => setMode('scenario')} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, padding: 14, cursor: 'pointer' }}>
+            Добавить события и запреты недели →
           </button>
         </div>
       )}
 
       {week.storyline && (
         <div style={{ ...card, marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: '#888', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Сюжет недели</div>
-          <div style={{ fontSize: 15 }}>{week.storyline}</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Сюжет недели</div>
+          <div style={{ ...display, fontSize: 17, fontWeight: 700, lineHeight: 1.3 }}>{week.storyline}</div>
+          <button onClick={askIntent} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '8px 0 0', cursor: 'pointer', fontSize: 12, color: '#b4b4bc', lineHeight: 1.4 }}>
+            🎯 {week.intent ? <>Главное: <span style={{ color: 'var(--text)' }}>{week.intent}</span> · <u>изменить</u></> : <u>Задать главное на неделю</u>}
+          </button>
           {day?.beat && (
-            <div style={{ fontSize: 12, color: '#777', marginTop: 8, lineHeight: 1.4 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, lineHeight: 1.4 }}>
               <span style={{ color: GOAL_COLORS[day.goal] }}>● {day.goal}</span> · {day.beat}
             </div>
           )}
@@ -379,11 +430,11 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       ))}
 
       {!isGenerating && (
-        <div style={{ ...card, marginBottom: 10, border: adding ? `1px solid ${neon}40` : '1px solid #222' }}>
+        <div style={{ ...card, marginBottom: 10, border: adding ? `1px solid ${neon}40` : '1px solid var(--line)' }}>
           {!adding ? (
-            <button onClick={() => setAdding(true)} style={{ width: '100%', background: 'none', border: 'none', color: '#ddd', fontSize: 14, cursor: 'pointer', textAlign: 'left', padding: 0 }}>
+            <button onClick={() => setAdding(true)} style={{ width: '100%', background: 'none', border: 'none', color: 'var(--text)', fontSize: 14, cursor: 'pointer', textAlign: 'left', padding: 0 }}>
               ✍️ <b>Опиши своими словами</b>
-              <div style={{ fontSize: 12, color: '#777', marginTop: 4 }}>Расскажи как есть, а ИИ сделает из этого пост в твоём стиле</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Расскажи как есть, а ИИ сделает из этого пост в твоём стиле</div>
             </button>
           ) : (
             <>
@@ -411,7 +462,7 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
 
       {day && !isGenerating && !day.failed && (
         <>
-          <Btn full kind="ghost" disabled={Boolean(busyPost)} onClick={() => rewritePost()} style={{ marginBottom: 10, border: '1px dashed #333' }}>
+          <Btn full kind="ghost" disabled={Boolean(busyPost)} onClick={() => rewritePost()} style={{ marginBottom: 10, border: '1px dashed var(--line-strong)' }}>
             {busyPost === 'add' && !adding ? 'Пишем…' : '+ Добавить пост (придумает ИИ)'}
           </Btn>
           <Btn full kind="ghost" disabled={Boolean(busyPost)} onClick={() => retryDay()}>
@@ -421,6 +472,13 @@ export default function ContentPlan({ persona, onAppearance }: { persona: Person
       )}
     </div>
   );
+}
+
+/** Подпись к раскрывающемуся блоку «что в контенте» */
+function mediaLabel(m: MediaType, self: boolean) {
+  if (m === 'Голосовое') return 'О чём голосовое';
+  if (m === 'Фото' || m === 'Карусель') return self ? 'Что снять' : 'Промпт для фото';
+  return 'Что снять';
 }
 
 // ---------- Карточка поста ----------
@@ -439,14 +497,15 @@ function PostCard({
     <div style={{ ...card, marginBottom: 10, opacity: busy ? 0.5 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: GOAL_COLORS[p.goal] }} />
-        <span style={{ fontSize: 13, color: '#999' }}>{p.time}</span>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{p.time}</span>
         {p.platform && <span style={{ fontSize: 10, fontWeight: 700, color: '#000', backgroundColor: PLATFORM_COLORS[p.platform] || '#ccc', borderRadius: 6, padding: '2px 7px' }}>{p.platform}</span>}
         <span style={{ fontSize: 10, color: GOAL_COLORS[p.goal], border: `1px solid ${GOAL_COLORS[p.goal]}50`, borderRadius: 20, padding: '1px 8px' }}>{p.goal}</span>
-        <span style={{ fontSize: 10, color: '#666', textTransform: 'uppercase' }}>{p.format}</span>
-        <button onClick={onDelete} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#444', fontSize: 14, cursor: 'pointer' }}>✕</button>
+        <span style={{ fontSize: 11, color: 'var(--text)', backgroundColor: 'var(--raised)', borderRadius: 6, padding: '2px 7px' }}>{MEDIA_ICONS[mediaOf(p)]} {mediaOf(p)}</span>
+        <span style={{ fontSize: 10, color: 'var(--muted)' }}>{p.format}</span>
+        <button onClick={onDelete} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--faint)', fontSize: 14, cursor: 'pointer' }}>✕</button>
       </div>
 
-      {p.hook && (
+      {p.hook && VIDEO_MEDIA.includes(mediaOf(p)) && (
         <div style={{ fontSize: 13, fontWeight: 700, color: '#ffd166', backgroundColor: '#1d1a10', border: '1px solid #3a3420', borderRadius: 10, padding: '8px 10px', marginBottom: 8 }}>
           🎬 Хук: {p.hook}
         </div>
@@ -458,32 +517,32 @@ function PostCard({
           {busy
             ? 'Переписываем…'
             : p.text.split(/\n\s*-{3}\s*\n/).map((part, i) => (
-                <div key={i} style={i ? { borderTop: '1px dashed #333', marginTop: 10, paddingTop: 10 } : undefined}>
-                  {i > 0 && <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>ЧАСТЬ {i + 1}</div>}
+                <div key={i} style={i ? { borderTop: '1px dashed var(--line-strong)', marginTop: 10, paddingTop: 10 } : undefined}>
+                  {i > 0 && <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 4 }}>Часть {i + 1}</div>}
                   {part}
                 </div>
               ))}
         </div>
       )}
+      {p.translation && <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45, marginBottom: 8, borderLeft: '2px solid #333', paddingLeft: 8 }}>🇷🇺 {p.translation}</div>}
       {p.hashtags && <div style={{ fontSize: 12, color: '#7ea6ff', marginBottom: 8 }}>{p.hashtags}</div>}
-      {p.sound && <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>🎵 {p.sound}</div>}
+      {p.sound && <div style={{ fontSize: 12, color: '#b4b4bc', marginBottom: 8 }}>🎵 {p.sound}</div>}
 
       {p.needsMedia && p.imagePrompt && (
         <div style={{ marginBottom: 8 }}>
           <button onClick={() => setShowPrompt(!showPrompt)} style={{ background: 'none', border: 'none', color: '#d9945b', fontSize: 12, padding: 0, cursor: 'pointer' }}>
-            📷 {self ? 'Нужно фото/видео' : 'Нужно фото'} {showPrompt ? '▴' : self ? '▾ что снять' : '▾ промпт'}
+            {MEDIA_ICONS[mediaOf(p)]} {mediaLabel(mediaOf(p), self)} {showPrompt ? '▴' : '▾'}
           </button>
           {showPrompt && (
-            <div style={{ backgroundColor: '#000', border: '1px solid #222', borderRadius: 10, padding: 10, marginTop: 6 }}>
-              <div style={{ fontSize: 11, color: '#999', lineHeight: 1.45, marginBottom: 8 }}>{p.imagePrompt}</div>
+            <div style={{ backgroundColor: 'rgba(0,0,0,0.35)', border: '1px solid var(--line)', borderRadius: 10, padding: 10, marginTop: 6 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.45, marginBottom: 8 }}>{p.imagePrompt}</div>
               <Chip onClick={() => onCopy(p.imagePrompt, 'p' + p.id)}>{copied === 'p' + p.id ? '✓ Скопировано' : self ? 'Копировать' : 'Копировать промпт'}</Chip>
             </div>
           )}
         </div>
       )}
-      {!p.needsMedia && <div style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>{self ? 'Только текст' : 'Без фото'}</div>}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderTop: '1px solid #1c1c1c', paddingTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
         <button style={icon(p.rating === 1)} onClick={() => onRate(1)} title="Нравится">👍</button>
         <button style={icon(p.rating === -1)} onClick={() => onRate(-1)} title="Не нравится">👎</button>
         <span style={{ flex: 1 }} />

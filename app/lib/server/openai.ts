@@ -97,9 +97,9 @@ export function clip(v: unknown, max: number): string {
   return typeof v === 'string' ? v.slice(0, max) : '';
 }
 
-/** Оставляет только нормальные картинки-референсы (до 3) */
-export function cleanImages(v: unknown): string[] {
+/** Оставляет только нормальные картинки (по умолчанию до 3) */
+export function cleanImages(v: unknown, max = 3): string[] {
   return Array.isArray(v)
-    ? v.filter((r): r is string => typeof r === 'string' && r.startsWith('data:image') && r.length < 1_500_000).slice(0, 3)
+    ? v.filter((r): r is string => typeof r === 'string' && r.startsWith('data:image') && r.length < 1_500_000).slice(0, max)
     : [];
 }

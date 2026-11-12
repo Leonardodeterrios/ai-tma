@@ -1,8 +1,8 @@
 'use client';
 // Настройки проекта: открываются по кнопке с именем в шапке.
 import { useState } from 'react';
-import { ARCHETYPES, ARCHE_IDS, KINDS, LANGUAGE_OPTIONS, MODEL_PLATFORMS, type Persona } from '../lib/persona';
-import { ArchetypeTest, MultiChips, PhotoRefs, SelfBrandFields, SelfGoalFields, SelfPlatformFields, SelfVoiceFields, StoryFields } from './PersonaParts';
+import { ARCHETYPES, ARCHE_IDS, KINDS, type Persona } from '../lib/persona';
+import { ArchetypeTest, LanguageFields, PhotoRefs, SelfBrandFields, SelfGoalFields, SelfPlatformFields, SelfVoiceFields, StoryFields } from './PersonaParts';
 import { Btn, Chip, card, hint, input, label, textarea } from './ui';
 
 export default function PersonaEditor({
@@ -71,9 +71,15 @@ export default function PersonaEditor({
             <span style={label}>Характер</span>
             <textarea value={p.character} onChange={(e) => set({ character: e.target.value })} rows={2} style={{ ...textarea, marginBottom: 14 }} />
             <span style={label}>Факты из жизни</span>
-            <textarea value={p.lifeFacts} onChange={(e) => set({ lifeFacts: e.target.value })} rows={2} style={{ ...textarea, marginBottom: 14 }} />
-            <span style={label}>Площадки</span>
-            <MultiChips options={MODEL_PLATFORMS} value={p.platforms} onChange={(platforms) => set({ platforms })} />
+            <textarea value={p.lifeFacts} onChange={(e) => set({ lifeFacts: e.target.value })} rows={2} style={textarea} />
+          </div>
+
+          <div style={block}>
+            <LanguageFields p={p} set={set} />
+          </div>
+
+          <div style={block}>
+            <SelfPlatformFields p={p} set={set} />
           </div>
 
           <div style={block}>
@@ -96,11 +102,7 @@ export default function PersonaEditor({
           <div style={block}>
             <span style={label}>Как она пишет (самое важное)</span>
             <p style={hint}>2–3 настоящих сообщения. ИИ копирует длину фраз, сленг и эмодзи.</p>
-            <textarea value={p.examples} onChange={(e) => set({ examples: e.target.value })} rows={5} style={{ ...textarea, marginBottom: 14 }} />
-            <span style={label}>Язык ответов фанатам</span>
-            <select value={p.languageMode} onChange={(e) => set({ languageMode: e.target.value as Persona['languageMode'] })} style={{ ...input, WebkitAppearance: 'none' }}>
-              {LANGUAGE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
+            <textarea value={p.examples} onChange={(e) => set({ examples: e.target.value })} rows={5} style={textarea} />
           </div>
 
           <div style={block}>
@@ -116,11 +118,11 @@ export default function PersonaEditor({
 
       <div style={{ marginTop: 28, textAlign: 'center' }}>
         {!confirmDelete ? (
-          <button onClick={() => setConfirmDelete(true)} style={{ background: 'none', border: 'none', color: '#444', fontSize: 12, cursor: 'pointer', padding: 10 }}>
+          <button onClick={() => setConfirmDelete(true)} style={{ background: 'none', border: 'none', color: 'var(--faint)', fontSize: 12, cursor: 'pointer', padding: 10 }}>
             Удалить проект (вместе с планом и перепиской)
           </button>
         ) : (
-          <div style={{ ...card, borderColor: '#5a2020' }}>
+          <div style={{ ...card, borderColor: 'rgba(255,107,107,0.35)' }}>
             <p style={{ fontSize: 13, color: '#ff6b6b', margin: '0 0 12px' }}>Точно удалить «{persona.name}»? Вернуть не получится.</p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
               <Btn kind="ghost" small onClick={() => setConfirmDelete(false)}>Нет</Btn>

@@ -1,26 +1,86 @@
 @import "tailwindcss";
 
+/* ---------- Цвета и шрифты приложения ---------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #060607;
+  --surface: rgba(255, 255, 255, 0.035);
+  --surface-solid: #111113;
+  --raised: rgba(255, 255, 255, 0.07);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text: #f5f5f2;
+  --muted: #9a9aa2;
+  --faint: #5e5e66;
+  --lime: #d8ff4f;
+  --lime-ink: #0b0d02;
+  --lime-soft: rgba(216, 255, 79, 0.1);
+  --danger: #ff6b6b;
+  --radius: 20px;
+  color-scheme: dark;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --font-sans: var(--font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  background: var(--bg);
+  color: var(--text);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  /* еле заметное лаймовое свечение сверху, как у студийных сайтов */
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgba(216, 255, 79, 0.07), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+  min-height: 100dvh;
+}
+
+button, input, textarea, select { font-family: inherit; }
+
+::selection { background: var(--lime); color: var(--lime-ink); }
+
+/* видимый фокус с клавиатуры */
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; border-radius: 10px; }
+input:focus, textarea:focus, select:focus { border-color: rgba(216, 255, 79, 0.5) !important; }
+
+::placeholder { color: var(--faint); }
+
+/* ---------- Кнопки ---------- */
+.vb-btn { transition: transform .12s ease, box-shadow .2s ease, background-color .2s ease, opacity .2s; }
+.vb-btn:active:not(:disabled) { transform: scale(0.97); }
+.vb-btn-primary:hover:not(:disabled) { box-shadow: 0 0 0 1px rgba(216, 255, 79, .4), 0 8px 30px -6px rgba(216, 255, 79, .55); }
+.vb-tile { transition: transform .2s ease, border-color .2s ease; }
+.vb-tile:active { transform: scale(0.985); }
+
+/* стеклянные панели */
+.vb-glass {
+  background: rgba(14, 14, 16, 0.72);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
+}
+
+/* тонкая «плёнка» поверх постеров */
+.vb-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: .22;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+.vb-scroll-x { scrollbar-width: none; }
+.vb-scroll-x::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }
